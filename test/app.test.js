@@ -5,18 +5,34 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-const appScript = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
-assert.ok(appScript, 'index.html must contain the application script');
+const appScripts = Array.from(html.matchAll(/<script>([\s\S]*?)<\/script>/g), match => match[1]);
+assert.ok(appScripts.length, 'index.html must contain the application script');
 
-function createAppHarness() {
+function createAppHarness(values = new Map()) {
   const elements = new Map();
-  const values = new Map();
   const makeElement = () => ({
     style: {},
     classList: { add() {}, remove() {} },
-    addEventListener() {},
+    listeners: new Map(),
+    formValues: {},
+    addEventListener(name, listener, options = {}) {
+      const handlers = this.listeners.get(name) || [];
+      handlers.push({ listener, capture: options === true || Boolean(options.capture) });
+      this.listeners.set(name, handlers);
+    },
+    dispatch(name, event) {
+      const handlers = this.listeners.get(name) || [];
+      const ordered = [...handlers.filter(handler => handler.capture), ...handlers.filter(handler => !handler.capture)];
+      for (const handler of ordered) {
+        handler.listener(event);
+        if (event.immediateStopped) break;
+      }
+    },
+    insertAdjacentHTML() {},
+    parentElement: { hidden: false, insertAdjacentHTML() {} },
     querySelectorAll() { return []; },
     reset() {},
+    focus() {},
     textContent: '',
     innerHTML: '',
     value: ''
@@ -26,20 +42,29 @@ function createAppHarness() {
       if (!elements.has(id)) elements.set(id, makeElement());
       return elements.get(id);
     },
-    querySelector() { return makeElement(); }
+    querySelector(selector) {
+      const key = `selector:${selector}`;
+      if (!elements.has(key)) elements.set(key, makeElement());
+      return elements.get(key);
+    }
   };
   const localStorage = {
     getItem(key) { return values.has(key) ? values.get(key) : null; },
     setItem(key, value) { values.set(key, value); }
   };
+  class FormDataStub {
+    constructor(form) { this.values = form.formValues; }
+    get(name) { return this.values[name] ?? null; }
+  }
   const context = vm.createContext({
     document,
     localStorage,
+    FormData: FormDataStub,
     structuredClone(value) { return structuredClone(value); },
     setTimeout() { return 1; },
     clearTimeout() {}
   });
-  new vm.Script(appScript, { filename: 'index.html' }).runInContext(context);
+  for (const [index, script] of appScripts.entries()) new vm.Script(script, { filename: `index.html#script-${index + 1}` }).runInContext(context);
   return {
     document,
     run(source) { return vm.runInContext(source, context); }
@@ -56,7 +81,34 @@ test('sample dates are relative to the current day', () => {
 
   assert.deepEqual(dates.taskOffsets, [5, 2, 7]);
   assert.deepEqual(dates.sessionOffsets, [0, 1, 2]);
-  assert.equal(app.document.getElementById('miniMonth').textContent, `${new Date().getFullYear()}年 ${new Date().getMonth() + 1}月`);
+  assert.equal(app.document.querySelector('.mini-calendar .section-label').textContent, `${new Date().getFullYear()}年 ${new Date().getMonth() + 1}月`);
+});
+
+test('one-off event submitted in the form persists and appears after reload', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage);
+  const date = app.run('dateKey(today)');
+  const repeatSelect = app.document.getElementById('eventRepeat');
+  repeatSelect.value = 'once';
+  const form = app.document.getElementById('eventForm');
+  form.formValues = { name: '図書館でレポート', type: 'personal', oneOffDate: date, start: '15:00', end: '16:00' };
+  const event = {
+    currentTarget: form,
+    defaultPrevented: false,
+    immediateStopped: false,
+    preventDefault() { this.defaultPrevented = true; },
+    stopImmediatePropagation() { this.immediateStopped = true; }
+  };
+
+  form.dispatch('submit', event);
+
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(JSON.parse(storage.get('michi-planner-v1')).extras[0].day, date);
+  const reloadedApp = createAppHarness(storage);
+  const calendarMarkup = reloadedApp.document.getElementById('calendarGrid').innerHTML;
+
+  assert.match(calendarMarkup, /図書館でレポート/);
+  assert.match(calendarMarkup, /15:00 – 16:00/);
 });
 
 test('running automatic scheduling repeatedly does not duplicate sessions', () => {
