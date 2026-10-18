@@ -6,6 +6,8 @@ const vm = require('node:vm');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const appScripts = Array.from(html.matchAll(/<script>([\s\S]*?)<\/script>/g), match => match[1]);
+const reviewScript = fs.readFileSync(path.join(__dirname, '..', 'weekly-review.js'), 'utf8');
+assert.match(html, /<script src="\.\/weekly-review\.js"><\/script>/, 'index.html must load the weekly review script');
 assert.ok(appScripts.length, 'index.html must contain the application script');
 
 function createAppHarness(values = new Map()) {
@@ -65,6 +67,7 @@ function createAppHarness(values = new Map()) {
     clearTimeout() {}
   });
   for (const [index, script] of appScripts.entries()) new vm.Script(script, { filename: `index.html#script-${index + 1}` }).runInContext(context);
+  new vm.Script(reviewScript, { filename: 'weekly-review.js' }).runInContext(context);
   return {
     document,
     run(source) { return vm.runInContext(source, context); }
@@ -159,4 +162,66 @@ test('rerouting preserves completed sessions and creates no duplicate active tim
 
   assert.equal(result.completedPreserved, true);
   assert.equal(result.activeTimeWithinRemaining, true);
+});
+
+test('scheduling fills multiple open study slots for one task in a day', () => {
+  const app = createAppHarness();
+  const result = JSON.parse(app.run(`(() => {
+    data.fixed = [];
+    data.extras = [];
+    data.sessions = [];
+    const due = dateKey(today);
+    data.tasks = [{ id: 'multi-slot', name: '集中して進める課題', due, hours: 3, remaining: 3, done: false }];
+    createSchedule();
+    const sessions = data.sessions.filter(session => session.taskId === 'multi-slot');
+    return JSON.stringify({
+      totalHours: sessions.reduce((sum, session) => sum + durationHours(session.start, session.end), 0),
+      sessions: sessions.map(session => [session.start, session.end])
+    });
+  })()`));
+
+  assert.equal(result.totalHours, 3);
+  assert.deepEqual(result.sessions, [['09:00', '10:00'], ['10:00', '11:00'], ['11:00', '12:00']]);
+});
+
+test('planning duration and actual session deviation persist for the selected week', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage);
+  app.run('recordPlanningTime(42)');
+  app.run(`recordSessionActual(data.sessions[0].id, '14:15', '15:10')`);
+  const records = JSON.parse(storage.get('michi-planner-v1'));
+  const weekKey = app.run('dateKey(weekStart)');
+
+  assert.equal(records.reviews[weekKey].planningMinutes, 42);
+  assert.equal(records.sessions[0].actualStart, '14:15');
+  assert.equal(records.sessions[0].actualEnd, '15:10');
+
+  const reloadedApp = createAppHarness(storage);
+  assert.match(reloadedApp.document.getElementById('planningTimeSummary').textContent, /42分/);
+  assert.match(reloadedApp.document.getElementById('reviewSessionList').innerHTML, /開始 \+15分 ／ 終了 \+10分/);
+});
+
+test('weekly review follows the selected calendar week and rejects invalid records', () => {
+  const app = createAppHarness();
+  const accepted = app.run(`(() => {
+    const saved = recordPlanningTime(25);
+    const invalidDuration = recordPlanningTime(0);
+    const invalidActual = recordSessionActual(data.sessions[0].id, '15:00', '14:00');
+    const invalidClock = recordSessionActual(data.sessions[0].id, '25:70', '26:00');
+    setWeek(1);
+    const nextWeekSummary = document.getElementById('planningTimeSummary').textContent;
+    return JSON.stringify({ saved, invalidDuration, invalidActual, invalidClock, nextWeekSummary });
+  })()`);
+  const result = JSON.parse(accepted);
+
+  assert.equal(result.saved, true);
+  assert.equal(result.invalidDuration, false);
+  assert.equal(result.invalidActual, false);
+  assert.equal(result.invalidClock, false);
+  assert.match(result.nextWeekSummary, /まだ記録されていません/);
+});
+
+test('GitHub Pages deployment includes the weekly review script', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'pages.yml'), 'utf8');
+  assert.match(workflow, /cp weekly-review\.js dist\/weekly-review\.js/);
 });
