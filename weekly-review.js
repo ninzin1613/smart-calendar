@@ -1,4 +1,10 @@
 const reviewContainer = document.querySelector('.below-calendar');
+reviewContainer.insertAdjacentHTML('beforebegin', `
+  <section class="capacity-warning" id="capacityWarning" role="status" aria-live="polite" hidden>
+    <div class="capacity-warning-title">期限までに配置できなかった課題</div>
+    <ul class="capacity-warning-list" id="capacityWarningList"></ul>
+  </section>
+`);
 reviewContainer.insertAdjacentHTML('afterend', `
   <section class="weekly-review panel" id="weeklyReview" aria-labelledby="reviewTitle">
     <div class="panel-head">
@@ -18,6 +24,52 @@ reviewContainer.insertAdjacentHTML('afterend', `
     <div class="review-list" id="reviewSessionList"></div>
   </section>
 `);
+
+function formatUnplacedMinutes(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return [hours ? `${hours}時間` : '', remainingMinutes ? `${remainingMinutes}分` : ''].filter(Boolean).join('');
+}
+
+function renderCapacityWarning() {
+  const warning = document.getElementById('capacityWarning');
+  const list = document.getElementById('capacityWarningList');
+  const trackedTaskIds = data.capacityShortages || [];
+  const shortages = trackedTaskIds.flatMap(taskId => {
+    const task = data.tasks.find(item => item.id === taskId && !item.done);
+    if (!task) return [];
+    const scheduled = data.sessions
+      .filter(session => session.taskId === task.id && !session.done && session.day >= dateKey(today))
+      .reduce((sum, session) => sum + durationHours(session.start, session.end), 0);
+    const minutes = Math.max(0, Math.round((task.remaining - scheduled) * 60));
+    return minutes ? [{ task, minutes }] : [];
+  });
+  const activeTaskIds = shortages.map(({ task }) => task.id);
+  if (JSON.stringify(activeTaskIds) !== JSON.stringify(trackedTaskIds)) {
+    data.capacityShortages = activeTaskIds;
+    save();
+  }
+  warning.hidden = shortages.length === 0;
+  list.innerHTML = shortages.map(({ task, minutes }) =>
+    `<li><strong>${escapeHTML(task.name)}</strong>：${formatUnplacedMinutes(minutes)}</li>`
+  ).join('');
+}
+
+const createScheduleWithCapacityTracking = createSchedule;
+createSchedule = (...args) => {
+  createScheduleWithCapacityTracking(...args);
+  data.capacityShortages = data.tasks
+    .filter(task => !task.done && task.remaining > 0)
+    .map(task => task.id);
+  save();
+  renderCapacityWarning();
+};
+
+const renderTasksWithCapacityTracking = renderTasks;
+renderTasks = (...args) => {
+  renderTasksWithCapacityTracking(...args);
+  renderCapacityWarning();
+};
 
 data.reviews = data.reviews || {};
 
@@ -117,3 +169,4 @@ document.getElementById('weeklyReview').addEventListener('submit', event => {
 });
 
 renderWeeklyReview();
+renderCapacityWarning();

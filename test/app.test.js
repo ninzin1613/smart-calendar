@@ -75,6 +75,11 @@ function createAppHarness(values = new Map()) {
 }
 
 test('sample dates are relative to the current day', () => {
+  assert.doesNotMatch(html, /class="brand-sub"/);
+  assert.doesNotMatch(html, /class="crumb"/);
+  assert.doesNotMatch(html, /class="free-badge"/);
+  assert.doesNotMatch(html, /getElementById\('freeBadge'\)/);
+
   const app = createAppHarness();
   const dates = JSON.parse(app.run(`JSON.stringify({
     today: dateKey(today),
@@ -84,7 +89,128 @@ test('sample dates are relative to the current day', () => {
 
   assert.deepEqual(dates.taskOffsets, [5, 2, 7]);
   assert.deepEqual(dates.sessionOffsets, [0, 1, 2]);
-  assert.equal(app.document.querySelector('.mini-calendar .section-label').textContent, `${new Date().getFullYear()}年 ${new Date().getMonth() + 1}月`);
+  assert.match(app.document.querySelector('.mini-calendar .section-label').innerHTML, new RegExp(`${new Date().getFullYear()}&#x5E74; ${new Date().getMonth() + 1}&#x6708;`));
+});
+
+test('mini calendar arrows navigate between months and preserve the weekday order', () => {
+  const app = createAppHarness();
+  const originalMonth = app.run('`${miniMonth.getFullYear()}-${miniMonth.getMonth() + 1}`');
+
+  app.run('shiftMiniMonth(1)');
+  assert.equal(app.run('`${miniMonth.getFullYear()}-${miniMonth.getMonth() + 1}`'), (() => {
+    const [year, month] = originalMonth.split('-').map(Number);
+    return month === 12 ? `${year + 1}-1` : `${year}-${month + 1}`;
+  })());
+  assert.match(app.document.querySelector('.mini-calendar .section-label').innerHTML, /id="nextMiniMonth"/);
+  assert.ok(app.document.getElementById('miniGrid').innerHTML.match(/<(?:span|button)\b/g).length >= 35);
+
+  app.run('shiftMiniMonth(-1)');
+  assert.equal(app.run('`${miniMonth.getFullYear()}-${miniMonth.getMonth() + 1}`'), originalMonth);
+  assert.deepEqual(JSON.parse(app.run('JSON.stringify(weekNames)')), ['日', '月', '火', '水', '木', '金', '土']);
+});
+
+test('mini calendar marks today in red and selecting a date shows that day', () => {
+  const app = createAppHarness();
+  const styles = Array.from(html.matchAll(/<style>([\s\S]*?)<\/style>/g), match => match[1]).join('\n');
+  const todayKey = app.run('dateKey(today)');
+  const todayButton = new RegExp(`<button type="button" class=" today selected" data-mini-date="${todayKey}"`);
+
+  assert.match(styles, /\.mini-grid \.today\s*\{[^}]*background:\s*var\(--coral\)/);
+  assert.match(styles, /\.mini-grid \.selected:not\(\.today\)\s*\{[^}]*background:\s*var\(--ink\);[^}]*color:\s*white/);
+  assert.match(app.document.getElementById('miniGrid').innerHTML, todayButton);
+
+  app.run("miniMonth = new Date('2026-10-01T00:00:00'); renderMiniCalendar(); selectCalendarDate('2026-10-28')");
+  const selected = JSON.parse(app.run(`JSON.stringify({
+    selectedDate: dateKey(selectedDate),
+    dayMode,
+    renderedDays: [...document.getElementById('calendarGrid').innerHTML.matchAll(/data-day="([^"]+)"/g)].map(match => match[1]),
+    dayButton: document.getElementById('miniGrid').innerHTML.includes('data-mini-date="2026-10-28"')
+  })`));
+
+  assert.equal(selected.selectedDate, '2026-10-28');
+  assert.equal(selected.dayMode, true);
+  assert.deepEqual(selected.renderedDays, ['2026-10-28']);
+  assert.equal(selected.dayButton, true);
+  assert.match(app.document.getElementById('calendarGrid').innerHTML, /data-day="2026-10-28"/);
+});
+
+test('today and current-week buttons return to their respective views', () => {
+  const styles = Array.from(html.matchAll(/<style>([\s\S]*?)<\/style>/g), match => match[1]).join('\n');
+  const miniCalendar = html.indexOf('<div class="side-section mini-calendar">');
+  const miniGrid = html.indexOf('<div class="mini-grid" id="miniGrid"></div>', miniCalendar);
+  const returnButtons = html.indexOf('<div class="calendar-return-actions">', miniGrid);
+  const calendarLegend = html.indexOf('予定の種類', miniGrid);
+  assert.match(styles, /\.calendar-return-actions\s*\{\s*display:\s*flex;/);
+  assert.match(styles, /\.calendar-return-actions \.secondary-btn\s*\{[^}]*flex:\s*1;[^}]*height:\s*28px;[^}]*font-size:\s*10px/);
+  assert.ok(miniCalendar >= 0 && miniGrid > miniCalendar && returnButtons > miniGrid && returnButtons < calendarLegend, 'return buttons should appear directly after the mini calendar');
+  assert.ok(html.indexOf('id="todayBtn"') > returnButtons);
+  assert.ok(html.indexOf('id="weekBtn"') > returnButtons);
+  assert.match(html, /id="todayBtn">&#x4ECA;&#x65E5;&#x306B;&#x623B;&#x308B;<\/button>/);
+  assert.match(html, /id="weekBtn">&#x4ECA;&#x9031;&#x306B;&#x623B;&#x308B;<\/button>/);
+
+  const app = createAppHarness();
+  const todayKey = app.run('dateKey(today)');
+  const todayButton = app.document.getElementById('todayBtn');
+  const weekButton = app.document.getElementById('weekBtn');
+
+  app.run("selectCalendarDate('2026-10-28')");
+  todayButton.dispatch('click', {});
+  assert.equal(app.run('dayMode'), true);
+  assert.deepEqual(JSON.parse(app.run('JSON.stringify([...document.getElementById("calendarGrid").innerHTML.matchAll(/data-day="([^"]+)"/g)].map(match => match[1]))')), [todayKey]);
+
+  app.run("selectCalendarDate('2026-10-28')");
+  weekButton.dispatch('click', {});
+  const currentWeek = JSON.parse(app.run(`JSON.stringify({
+    dayMode,
+    weekStart: dateKey(weekStart),
+    todayWeekStart: dateKey(startOfWeek(today)),
+    days: [...document.getElementById('calendarGrid').innerHTML.matchAll(/data-day="([^"]+)"/g)].map(match => match[1])
+  })`));
+  assert.equal(currentWeek.dayMode, false);
+  assert.equal(currentWeek.weekStart, currentWeek.todayWeekStart);
+  assert.equal(currentWeek.days.length, 7);
+  assert.equal(currentWeek.days[0], currentWeek.todayWeekStart);
+});
+
+test('calendar weeks and mini calendar run from Sunday through Saturday', () => {
+  const app = createAppHarness();
+  const result = JSON.parse(app.run(`(() => {
+    const sunday = startOfWeek(new Date('2026-10-25T00:00:00'));
+    const monday = startOfWeek(new Date('2026-10-26T00:00:00'));
+    const yearBoundary = startOfWeek(new Date('2027-01-01T00:00:00'));
+    weekStart = sunday;
+    renderCalendar();
+    return JSON.stringify({
+      sunday: dateKey(sunday),
+      monday: dateKey(monday),
+      yearBoundary: dateKey(yearBoundary),
+      days: [...document.getElementById('calendarGrid').innerHTML.matchAll(/data-day="([^"]+)"/g)].map(match => match[1]),
+      miniWeekdays: [...document.getElementById('miniGrid').innerHTML.matchAll(/<span>([^<]*)<\\/span>/g)].slice(0, 7).map(match => match[1])
+    });
+  })()`));
+
+  assert.equal(result.sunday, '2026-10-25');
+  assert.equal(result.monday, '2026-10-25');
+  assert.equal(result.yearBoundary, '2026-12-27');
+  assert.deepEqual(result.days, ['2026-10-25', '2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31']);
+  assert.deepEqual(result.miniWeekdays, ['日', '月', '火', '水', '木', '金', '土']);
+});
+
+test('calendar time axis stays aligned to its reserved first column', () => {
+  const styles = Array.from(html.matchAll(/<style>([\s\S]*?)<\/style>/g), match => match[1]).join('\n');
+
+  assert.match(styles, /\.calendar-grid\s*\{[^}]*position:\s*relative/);
+  assert.match(styles, /\.calendar-grid::before\s*\{[^}]*grid-column:\s*1;[^}]*grid-row:\s*2;[^}]*height:\s*1080px/);
+  assert.match(styles, /\.time-label\s*\{[^}]*left:\s*0;[^}]*width:\s*48px;[^}]*translateY\(calc\(-50% \+ 54px\)\)/);
+  assert.match(styles, /\.day-column\s*\{[^}]*height:\s*1080px/);
+
+  const app = createAppHarness();
+  const labels = app.document.getElementById('calendarGrid').innerHTML.match(/>\d{2}:00<\/div>/g);
+  assert.equal(app.run("slotTop('00:00')"), 0);
+  assert.equal(app.run("slotTop('24:00')"), 1080);
+  assert.equal(labels.length, 25);
+  assert.match(labels[0], />00:00<\/div>/);
+  assert.match(labels.at(-1), />24:00<\/div>/);
 });
 
 test('one-off event submitted in the form persists and appears after reload', () => {
@@ -106,12 +232,22 @@ test('one-off event submitted in the form persists and appears after reload', ()
   form.dispatch('submit', event);
 
   assert.equal(event.defaultPrevented, true);
-  assert.equal(JSON.parse(storage.get('michi-planner-v1')).extras[0].day, date);
+  assert.equal(JSON.parse(storage.get('smart-calendar-v1')).extras[0].day, date);
   const reloadedApp = createAppHarness(storage);
   const calendarMarkup = reloadedApp.document.getElementById('calendarGrid').innerHTML;
 
   assert.match(calendarMarkup, /図書館でレポート/);
   assert.match(calendarMarkup, /15:00 – 16:00/);
+});
+
+test('migrates saved planner data from the legacy storage key', () => {
+  const legacyData = { fixed: [], tasks: [], sessions: [], extras: [{ id: 'legacy-event', name: '以前の予定', day: '2026-10-25', start: '10:00', end: '11:00', type: 'personal' }] };
+  const storage = new Map([['michi-planner-v1', JSON.stringify(legacyData)]]);
+
+  createAppHarness(storage);
+
+  assert.deepEqual(JSON.parse(storage.get('smart-calendar-v1')), legacyData);
+  assert.equal(storage.has('michi-planner-v1'), true);
 });
 
 test('running automatic scheduling repeatedly does not duplicate sessions', () => {
@@ -128,21 +264,88 @@ test('running automatic scheduling repeatedly does not duplicate sessions', () =
   assert.deepEqual(counts(), firstRun);
 });
 
-test('toggling a study session done and undone restores remaining effort', () => {
+test('automatic scheduling does not overlap recurring, one-off, or existing commitments', () => {
   const app = createAppHarness();
   const result = JSON.parse(app.run(`(() => {
-    const session = data.sessions[0];
-    const task = data.tasks.find(item => item.id === session.taskId);
-    const initial = task.remaining;
-    toggleSession(session.id);
-    const afterDone = task.remaining;
-    toggleSession(session.id);
-    return JSON.stringify({ initial, afterDone, afterUndo: task.remaining, done: session.done });
+    const day = dateKey(today);
+    data.fixed = [{ id: 'class', name: '授業', day: today.getDay(), start: '09:30', end: '10:30' }];
+    data.extras = [{ id: 'appointment', name: '用事', day, start: '13:00', end: '14:00' }];
+    data.sessions = [{ id: 'existing', taskId: 'other-task', name: '既存の学習', day, start: '15:00', end: '16:00', type: 'study', done: false }];
+    data.tasks = [{ id: 'scheduled-task', name: '課題', due: day, hours: 3.5, remaining: 3.5, done: false }];
+    createSchedule();
+    return JSON.stringify({
+      day,
+      commitments: [
+        { start: '09:30', end: '10:30' },
+        { start: '13:00', end: '14:00' },
+        { start: '15:00', end: '16:00' }
+      ],
+      sessions: data.sessions.filter(session => session.taskId === 'scheduled-task'),
+      allActiveSessions: data.sessions.filter(session => !session.done)
+    });
   })()`));
 
-  assert.equal(result.afterDone, result.initial - 1);
-  assert.equal(result.afterUndo, result.initial);
-  assert.equal(result.done, false);
+  const minutes = time => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
+  const overlaps = (left, right) => minutes(left.start) < minutes(right.end) && minutes(right.start) < minutes(left.end);
+  assert.equal(result.sessions.reduce((sum, session) => sum + (minutes(session.end) - minutes(session.start)) / 60, 0), 3.5);
+  for (const session of result.sessions) {
+    for (const commitment of result.commitments) assert.equal(overlaps(session, commitment), false);
+  }
+  for (let index = 0; index < result.allActiveSessions.length; index++) {
+    for (let other = index + 1; other < result.allActiveSessions.length; other++) {
+      assert.equal(overlaps(result.allActiveSessions[index], result.allActiveSessions[other]), false);
+    }
+  }
+});
+
+test('automatic scheduling reports insufficient free time before the deadline', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage);
+  const result = JSON.parse(app.run(`(() => {
+    const day = dateKey(today);
+    data.fixed = [{ id: 'class', name: '授業', day: today.getDay(), start: '09:00', end: '21:00' }];
+    data.extras = [];
+    data.sessions = [];
+    data.tasks = [{ id: 'tight-deadline', name: '締め切り間近の課題', due: day, hours: 2, remaining: 2, done: false }];
+    createSchedule();
+    return JSON.stringify({
+      day,
+      sessions: data.sessions.filter(session => session.taskId === 'tight-deadline'),
+      capacityWarning: document.getElementById('capacityWarningList').innerHTML,
+      notification: document.getElementById('toast').textContent
+    });
+  })()`));
+
+  assert.equal(result.sessions.length, 1);
+  assert.equal(result.sessions[0].day, result.day);
+  assert.equal(result.sessions[0].start, '21:00');
+  assert.equal(result.sessions[0].end, '22:00');
+  assert.match(result.notification, /空き時間が足りません/);
+  assert.match(result.capacityWarning, /締め切り間近の課題/);
+  assert.match(result.capacityWarning, /1時間/);
+  assert.deepEqual(JSON.parse(storage.get('smart-calendar-v1')).capacityShortages, ['tight-deadline']);
+
+  const reloadedApp = createAppHarness(storage);
+  assert.match(reloadedApp.document.getElementById('capacityWarningList').innerHTML, /締め切り間近の課題/);
+  assert.match(reloadedApp.document.getElementById('capacityWarningList').innerHTML, /1時間/);
+});
+
+test('toggling a study session done and undone persists both states and restores remaining effort', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage);
+  const sessionId = app.run('data.sessions[0].id');
+  const initial = app.run('data.tasks.find(item => item.id === data.sessions[0].taskId).remaining');
+
+  app.run(`toggleSession('${sessionId}')`);
+  const completed = JSON.parse(storage.get('smart-calendar-v1'));
+  assert.equal(completed.sessions.find(session => session.id === sessionId).done, true);
+  assert.equal(completed.tasks.find(task => task.id === completed.sessions.find(session => session.id === sessionId).taskId).remaining, initial - 1);
+
+  const reloadedApp = createAppHarness(storage);
+  reloadedApp.run(`toggleSession('${sessionId}')`);
+  const reopened = JSON.parse(storage.get('smart-calendar-v1'));
+  assert.equal(reopened.sessions.find(session => session.id === sessionId).done, false);
+  assert.equal(reopened.tasks.find(task => task.id === reopened.sessions.find(session => session.id === sessionId).taskId).remaining, initial);
 });
 
 test('rerouting preserves completed sessions and creates no duplicate active time', () => {
@@ -189,7 +392,7 @@ test('planning duration and actual session deviation persist for the selected we
   const app = createAppHarness(storage);
   app.run('recordPlanningTime(42)');
   app.run(`recordSessionActual(data.sessions[0].id, '14:15', '15:10')`);
-  const records = JSON.parse(storage.get('michi-planner-v1'));
+  const records = JSON.parse(storage.get('smart-calendar-v1'));
   const weekKey = app.run('dateKey(weekStart)');
 
   assert.equal(records.reviews[weekKey].planningMinutes, 42);
@@ -221,7 +424,14 @@ test('weekly review follows the selected calendar week and rejects invalid recor
   assert.match(result.nextWeekSummary, /まだ記録されていません/);
 });
 
-test('GitHub Pages deployment includes the weekly review script', () => {
+test('GitHub Pages deploy waits for the passing test job', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'pages.yml'), 'utf8');
-  assert.match(workflow, /cp weekly-review\.js dist\/weekly-review\.js/);
+  const testJob = workflow.match(/test:\s*\n([\s\S]*?)\n\s+deploy:/);
+  const deployJob = workflow.match(/deploy:\s*\n([\s\S]*)/);
+  assert.ok(testJob, 'workflow must define a test job before deployment');
+  assert.match(testJob[1], /- run: npm test/);
+  assert.ok(deployJob, 'workflow must define a deployment job');
+  assert.match(deployJob[1], /\n\s+needs: test(?:\r?\n|$)/);
+  assert.doesNotMatch(deployJob[1], /\balways\(\)/);
+  assert.match(deployJob[1], /cp weekly-review\.js dist\/weekly-review\.js/);
 });
