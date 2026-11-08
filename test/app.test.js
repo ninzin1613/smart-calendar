@@ -7,7 +7,9 @@ const vm = require('node:vm');
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const appScripts = Array.from(html.matchAll(/<script>([\s\S]*?)<\/script>/g), match => match[1]);
 const reviewScript = fs.readFileSync(path.join(__dirname, '..', 'weekly-review.js'), 'utf8');
+const studyPlanningScript = fs.readFileSync(path.join(__dirname, '..', 'study-planning.js'), 'utf8');
 assert.match(html, /<script src="\.\/weekly-review\.js"><\/script>/, 'index.html must load the weekly review script');
+assert.match(html, /<script src="\.\/study-planning\.js"><\/script>/, 'index.html must load the study planning script');
 assert.ok(appScripts.length, 'index.html must contain the application script');
 
 function createAppHarness(values = new Map()) {
@@ -31,6 +33,7 @@ function createAppHarness(values = new Map()) {
       }
     },
     insertAdjacentHTML() {},
+    appendChild() {},
     parentElement: { hidden: false, insertAdjacentHTML() {} },
     querySelectorAll() { return []; },
     reset() {},
@@ -40,6 +43,8 @@ function createAppHarness(values = new Map()) {
     value: ''
   });
   const document = {
+    head: { appendChild() {} },
+    createElement() { return makeElement(); },
     getElementById(id) {
       if (!elements.has(id)) elements.set(id, makeElement());
       return elements.get(id);
@@ -68,6 +73,7 @@ function createAppHarness(values = new Map()) {
   });
   for (const [index, script] of appScripts.entries()) new vm.Script(script, { filename: `index.html#script-${index + 1}` }).runInContext(context);
   new vm.Script(reviewScript, { filename: 'weekly-review.js' }).runInContext(context);
+  new vm.Script(studyPlanningScript, { filename: 'study-planning.js' }).runInContext(context);
   return {
     document,
     run(source) { return vm.runInContext(source, context); }
@@ -387,6 +393,170 @@ test('scheduling fills multiple open study slots for one task in a day', () => {
   assert.deepEqual(result.sessions, [['09:00', '10:00'], ['10:00', '11:00'], ['11:00', '12:00']]);
 });
 
+test('study effort estimates scale with workload and difficulty and reject invalid inputs', () => {
+  const app = createAppHarness();
+  const estimates = JSON.parse(app.run(`JSON.stringify({
+    report: estimateStudyHours('report', 3000, 3),
+    reading: estimateStudyHours('reading', 50, 5),
+    easyExam: estimateStudyHours('exam', 50, 1),
+    invalid: estimateStudyHours('report', 0, 3)
+  })`));
+
+  assert.equal(estimates.report, 2.5);
+  assert.equal(estimates.reading, 6);
+  assert.equal(estimates.easyExam, 2.25);
+  assert.equal(estimates.invalid, 0);
+});
+
+test('report plans split into ordered subtasks, schedule them, and persist the plan', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage);
+  const result = JSON.parse(app.run(`(() => {
+    const due = dateKey(addDays(today, 5));
+    const plan = createStudyPlan({
+      name: '経済学レポート',
+      kind: 'report',
+      due,
+      workload: 3000,
+      difficulty: 3,
+      hours: 2.5,
+      credits: 2,
+      progress: 0,
+      scope: ''
+    });
+    return JSON.stringify({
+      plan,
+      phases: data.tasks.filter(task => task.planId === plan.id).map(task => ({
+        phase: task.phase,
+        hours: task.hours,
+        remaining: task.remaining
+      })),
+      scheduled: data.sessions.filter(session => data.tasks.some(task => task.id === session.taskId && task.planId === plan.id)),
+      priority: document.getElementById('priorityList').innerHTML
+    });
+  })()`));
+  const saved = JSON.parse(storage.get('smart-calendar-v1'));
+
+  assert.deepEqual(result.phases.map(phase => phase.phase), ['調査・構成', '執筆', '推敲']);
+  assert.equal(result.phases.reduce((sum, phase) => sum + phase.hours, 0), 2.5);
+  assert.equal(result.phases.reduce((sum, phase) => sum + phase.remaining, 0), 2.5);
+  assert.equal(result.scheduled.reduce((sum, session) => sum + (Number(session.end.slice(0, 2)) * 60 + Number(session.end.slice(3)) - Number(session.start.slice(0, 2)) * 60 - Number(session.start.slice(3))) / 60, 0), 2.5);
+  assert.match(result.priority, /経済学レポート/);
+  assert.equal(saved.plans[0].credits, 2);
+  assert.equal(saved.tasks.filter(task => task.planId === result.plan.id).length, 3);
+});
+
+test('exam revision sessions are placed 7, 3, and 1 days before the test', () => {
+  const app = createAppHarness();
+  const result = JSON.parse(app.run(`(() => {
+    data.fixed = [];
+    data.extras = [];
+    data.sessions = [];
+    const due = dateKey(addDays(today, 10));
+    const plan = createStudyPlan({
+      name: '統計学テスト',
+      kind: 'exam',
+      due,
+      workload: 50,
+      difficulty: 3,
+      hours: 3,
+      credits: 4,
+      progress: 0,
+      scope: '教科書 p.50〜100'
+    });
+    return JSON.stringify({
+      due,
+      phases: data.tasks.filter(task => task.planId === plan.id).map(task => [task.phase, task.scheduleOnDate]),
+      sessions: data.sessions.filter(session => data.tasks.some(task => task.id === session.taskId && task.planId === plan.id)).map(session => session.day),
+      scope: plan.scope
+    });
+  })()`));
+  const expectedDates = [7, 3, 1].map(offset => app.run(`dateKey(addDays(new Date('${result.due}T00:00:00'), -${offset}))`));
+
+  assert.deepEqual(result.phases.map(phase => phase[1]), expectedDates);
+  assert.deepEqual(result.sessions.sort(), [...expectedDates].sort());
+  assert.equal(result.scope, '教科書 p.50〜100');
+});
+
+test('nearby exam dates compress revision spacing without scheduling sessions in the past', () => {
+  const app = createAppHarness();
+  const result = JSON.parse(app.run(`(() => {
+    const tomorrow = dateKey(addDays(today, 1));
+    const inTwoDays = dateKey(addDays(today, 2));
+    return JSON.stringify({
+      tomorrow: getReviewDates(tomorrow),
+      inTwoDays: getReviewDates(inTwoDays),
+      today: getReviewDates(dateKey(today))
+    });
+  })()`));
+
+  assert.deepEqual(result.tomorrow, [app.run('dateKey(today)')]);
+  assert.deepEqual(result.inTwoDays, [app.run('dateKey(today)'), app.run('dateKey(addDays(today, 1))')]);
+  assert.deepEqual(result.today, [app.run('dateKey(today)')]);
+});
+
+test('priority ranking reflects credits, deadlines, and remaining progress', () => {
+  const app = createAppHarness();
+  const result = JSON.parse(app.run(`(() => {
+    const due = dateKey(addDays(today, 4));
+    createStudyPlan({ name: '低単位課題', kind: 'report', due, workload: 1000, difficulty: 3, hours: 1, credits: 1, progress: 0, scope: '' });
+    createStudyPlan({ name: '重要な試験', kind: 'exam', due, workload: 10, difficulty: 3, hours: 1, credits: 4, progress: 0, scope: '第1〜3回' });
+    createStudyPlan({ name: '進捗済み課題', kind: 'report', due, workload: 1000, difficulty: 3, hours: 1, credits: 4, progress: 90, scope: '' });
+    return JSON.stringify({
+      html: document.getElementById('priorityList').innerHTML,
+      names: getPriorityPlans().map(plan => plan.name)
+    });
+  })()`));
+
+  assert.equal(result.names[0], '重要な試験');
+  assert.ok(result.names.indexOf('進捗済み課題') > result.names.indexOf('低単位課題'));
+  assert.ok(result.html.indexOf('重要な試験') < result.html.indexOf('低単位課題'));
+});
+
+test('task form submission creates a local plan and requires a test scope', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage);
+  const form = app.document.getElementById('eventForm');
+  const due = app.run('dateKey(addDays(today, 7))');
+  app.document.getElementById('eventType').value = 'task';
+  app.document.getElementById('studyType').value = 'exam';
+  app.document.getElementById('studyScope').value = '講義 第1〜5回';
+  form.formValues = {
+    name: '生物テスト',
+    due,
+    start: '13:00',
+    end: '14:00',
+    studyType: 'exam',
+    studyWorkload: '40',
+    studyDifficulty: '3',
+    duration: '2',
+    courseCredits: '3',
+    studyProgress: '25',
+    studyScope: '講義 第1〜5回'
+  };
+  const event = {
+    currentTarget: form,
+    defaultPrevented: false,
+    immediateStopped: false,
+    preventDefault() { this.defaultPrevented = true; },
+    stopImmediatePropagation() { this.immediateStopped = true; }
+  };
+
+  form.dispatch('submit', event);
+
+  const saved = JSON.parse(storage.get('smart-calendar-v1'));
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(event.immediateStopped, true);
+  assert.equal(saved.plans[0].scope, '講義 第1〜5回');
+  assert.equal(saved.plans[0].progressPercent, 25);
+  assert.equal(saved.plans[0].credits, 3);
+  assert.equal(app.document.getElementById('studyScopeField').hidden, true);
+  assert.match(app.document.getElementById('taskList').innerHTML, /講義 第1〜5回/);
+
+  app.document.getElementById('studyScope').value = '';
+  assert.equal(app.run("createStudyPlan({ name: '範囲なし', kind: 'exam', due: dateKey(addDays(today, 3)), workload: 10, difficulty: 3, hours: 1, credits: 1, progress: 0, scope: '' })"), null);
+});
+
 test('planning duration and actual session deviation persist for the selected week', () => {
   const storage = new Map();
   const app = createAppHarness(storage);
@@ -434,4 +604,5 @@ test('GitHub Pages deploy waits for the passing test job', () => {
   assert.match(deployJob[1], /\n\s+needs: test(?:\r?\n|$)/);
   assert.doesNotMatch(deployJob[1], /\balways\(\)/);
   assert.match(deployJob[1], /cp weekly-review\.js dist\/weekly-review\.js/);
+  assert.match(deployJob[1], /cp study-planning\.js dist\/study-planning\.js/);
 });
