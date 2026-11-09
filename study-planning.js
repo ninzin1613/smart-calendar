@@ -202,6 +202,7 @@ function createStudyPlan({ name, kind, due, workload, difficulty, hours, credits
   const totalHours = Number(hours);
   if (!name || !['report', 'reading', 'exam'].includes(kind) || !due || due < dateKey(today)
       || !Number.isFinite(totalHours) || totalHours <= 0 || totalHours > 200
+      || Math.abs(totalHours * 60 - Math.round(totalHours * 60)) > 0.00001
       || !Number.isFinite(Number(credits)) || Number(credits) <= 0
       || !Number.isFinite(Number(progress)) || Number(progress) < 0 || Number(progress) > 100
       || (kind === 'exam' && !String(scope || '').trim())) {
@@ -235,14 +236,20 @@ function createStudyPlan({ name, kind, due, workload, difficulty, hours, credits
   };
   data.plans.push(plan);
 
-  let completedHours = totalHours * Number(progress) / 100;
+  const totalMinutes = Math.round(totalHours * 60);
+  const phaseMinutes = phases.map(phase => Math.floor(totalMinutes * phase.share));
+  let unassignedMinutes = totalMinutes - phaseMinutes.reduce((sum, minutes) => sum + minutes, 0);
+  const fractionalMinutes = phases
+    .map((phase, index) => ({ index, fraction: totalMinutes * phase.share - phaseMinutes[index] }))
+    .sort((left, right) => right.fraction - left.fraction || left.index - right.index);
+  for (let index = 0; index < unassignedMinutes; index++) phaseMinutes[fractionalMinutes[index].index]++;
+
+  let completedMinutes = Math.round(totalMinutes * Number(progress) / 100);
   phases.forEach((phase, index) => {
-    const phaseHours = index === phases.length - 1
-      ? Math.max(0, totalHours - phases.slice(0, -1).reduce((sum, item) => sum + item.share * totalHours, 0))
-      : totalHours * phase.share;
-    const completed = Math.min(phaseHours, completedHours);
-    completedHours -= completed;
-    const remaining = Math.max(0, phaseHours - completed);
+    const allocatedMinutes = phaseMinutes[index];
+    const completed = Math.min(allocatedMinutes, completedMinutes);
+    completedMinutes -= completed;
+    const remaining = (allocatedMinutes - completed) / 60;
     data.tasks.push({
       id: `${planId}-${index + 1}`,
       planId,
@@ -252,7 +259,7 @@ function createStudyPlan({ name, kind, due, workload, difficulty, hours, credits
       due,
       scheduleOnDate: phase.scheduleOnDate,
       scope: plan.scope,
-      hours: phaseHours,
+      hours: allocatedMinutes / 60,
       remaining,
       done: remaining === 0
     });
@@ -295,8 +302,9 @@ function createStudySchedule({ reroute = false } = {}) {
       if (1320 - cursor >= 60) available.push([cursor, 1320]);
       for (const [start, end] of available) {
         let slotStart = start;
-        while (end - slotStart >= 60 && remaining > 0) {
-          const length = Math.min(60, remaining * 60, end - slotStart);
+        while (end - slotStart >= 15 && remaining * 60 >= 15) {
+          const length = Math.floor(Math.min(60, remaining * 60, end - slotStart));
+          if (length < 15) break;
           const startText = `${String(Math.floor(slotStart / 60)).padStart(2, '0')}:${String(slotStart % 60).padStart(2, '0')}`;
           const endMinute = slotStart + length;
           const endText = `${String(Math.floor(endMinute / 60)).padStart(2, '0')}:${String(endMinute % 60).padStart(2, '0')}`;

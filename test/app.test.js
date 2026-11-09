@@ -9,16 +9,22 @@ const appScripts = Array.from(html.matchAll(/<script>([\s\S]*?)<\/script>/g), ma
 const reviewScript = fs.readFileSync(path.join(__dirname, '..', 'weekly-review.js'), 'utf8');
 const studyPlanningScript = fs.readFileSync(path.join(__dirname, '..', 'study-planning.js'), 'utf8');
 const spareTimeScript = fs.readFileSync(path.join(__dirname, '..', 'spare-time.js'), 'utf8');
+const dashboardEnhancementsScript = fs.readFileSync(path.join(__dirname, '..', 'dashboard-enhancements.js'), 'utf8');
 assert.match(html, /<script src="\.\/weekly-review\.js"><\/script>/, 'index.html must load the weekly review script');
 assert.match(html, /<script src="\.\/study-planning\.js"><\/script>/, 'index.html must load the study planning script');
 assert.match(html, /<script src="\.\/spare-time\.js"><\/script>/, 'index.html must load the spare-time suggestion script');
+assert.match(html, /<script src="\.\/dashboard-enhancements\.js"><\/script>/, 'index.html must load the dashboard enhancements');
 assert.ok(appScripts.length, 'index.html must contain the application script');
 
 function createAppHarness(values = new Map()) {
   const elements = new Map();
   const makeElement = () => ({
     style: {},
-    classList: { add() {}, remove() {} },
+    classList: {
+      added: [],
+      add(value) { this.added.push(value); },
+      remove(value) { this.added = this.added.filter(item => item !== value); }
+    },
     listeners: new Map(),
     formValues: {},
     addEventListener(name, listener, options = {}) {
@@ -45,8 +51,10 @@ function createAppHarness(values = new Map()) {
     value: ''
   });
   const document = {
+    body: makeElement(),
     head: { appendChild() {} },
     createElement() { return makeElement(); },
+    querySelectorAll() { return []; },
     getElementById(id) {
       if (!elements.has(id)) elements.set(id, makeElement());
       return elements.get(id);
@@ -78,6 +86,7 @@ function createAppHarness(values = new Map()) {
   new vm.Script(reviewScript, { filename: 'weekly-review.js' }).runInContext(context);
   new vm.Script(studyPlanningScript, { filename: 'study-planning.js' }).runInContext(context);
   new vm.Script(spareTimeScript, { filename: 'spare-time.js' }).runInContext(context);
+  new vm.Script(dashboardEnhancementsScript, { filename: 'dashboard-enhancements.js' }).runInContext(context);
   return {
     document,
     run(source) { return vm.runInContext(source, context); }
@@ -450,6 +459,51 @@ test('report plans split into ordered subtasks, schedule them, and persist the p
   assert.equal(saved.tasks.filter(task => task.planId === result.plan.id).length, 3);
 });
 
+test('fractional study estimates split into whole-minute sessions and fit the existing time input', () => {
+  const app = createAppHarness();
+  const result = JSON.parse(app.run(`(() => {
+    data.fixed = [];
+    data.extras = [];
+    data.sessions = [];
+    const plan = createStudyPlan({
+      name: '小さめのレポート',
+      kind: 'report',
+      due: dateKey(addDays(today, 3)),
+      workload: 2000,
+      difficulty: 3,
+      hours: 1.75,
+      credits: 1,
+      progress: 10,
+      scope: ''
+    });
+    const tasks = data.tasks.filter(task => task.planId === plan.id);
+    const sessions = data.sessions.filter(session => tasks.some(task => task.id === session.taskId));
+    const invalid = createStudyPlan({
+      name: '不正な分単位',
+      kind: 'report',
+      due: plan.due,
+      workload: 1000,
+      difficulty: 3,
+      hours: 1.333,
+      credits: 1,
+      progress: 0,
+      scope: ''
+    });
+    return JSON.stringify({
+      taskMinutes: tasks.map(task => [task.hours * 60, task.remaining * 60]),
+      sessionTimes: sessions.map(session => [session.start, session.end]),
+      scheduledMinutes: sessions.reduce((sum, session) => sum + clockMinutes(session.end) - clockMinutes(session.start), 0),
+      invalid
+    });
+  })()`));
+
+  assert.match(html, /id="eventDuration"[^>]*step="0\.25"/);
+  assert.deepEqual(result.taskMinutes.flat().every(Number.isInteger), true);
+  assert.equal(result.sessionTimes.every(([start, end]) => /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end)), true);
+  assert.equal(result.scheduledMinutes, 94);
+  assert.equal(result.invalid, null);
+});
+
 test('exam revision sessions are placed 7, 3, and 1 days before the test', () => {
   const app = createAppHarness();
   const result = JSON.parse(app.run(`(() => {
@@ -610,7 +664,7 @@ test('spare-time recommendations adapt to location, fatigue, and the available d
     ];
     data.sessions = [];
     const gap = { minutes: 40 };
-    const libraryWhenTired = getSmartStudySuggestions(gap, 'library', 1);
+    const libraryWhenTired = getSmartStudySuggestions(gap, 'library', 1, 25, 'easy');
     const homeWhenEnergetic = getSmartStudySuggestions(gap, 'home', 5);
     return JSON.stringify({
       tiredTop: libraryWhenTired[0].task.id,
@@ -623,7 +677,7 @@ test('spare-time recommendations adapt to location, fatigue, and the available d
 
   assert.equal(result.tiredTop, 'reading-task');
   assert.equal(result.energeticTop, 'writing-task');
-  assert.equal(result.suggestionCount, 2);
+  assert.equal(result.suggestionCount, 1);
   assert.equal(result.suggestedMinutes, 25);
   assert.equal(result.tooShort, 0);
 });
@@ -653,9 +707,132 @@ test('adding a spare-time suggestion persists its session and local context', ()
   assert.equal(result.session.start, '10:30');
   assert.equal(result.session.end, '10:55');
   assert.equal(result.session.day, app.run('dateKey(addDays(today, 1))'));
-  assert.deepEqual(result.context, { location: 'cafe', fatigue: 2 });
-  assert.deepEqual(saved.context, { location: 'cafe', fatigue: 2 });
+  assert.deepEqual(result.context, { location: 'cafe', fatigue: 2, duration: 30, mode: 'focus' });
+  assert.deepEqual(saved.context, { location: 'cafe', fatigue: 2, duration: 30, mode: 'focus' });
   assert.equal(saved.sessions.at(-1).taskId, 'short-task');
+});
+
+test('spare-time duration and condition filters persist and change recommendations', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage);
+  const result = JSON.parse(app.run(`(() => {
+    const due = dateKey(addDays(today, 3));
+    data.tasks = [
+      { id: 'reading', name: '読書の復習', due, remaining: 1, done: false },
+      { id: 'writing', name: 'レポート執筆', due, remaining: 1, done: false }
+    ];
+    data.sessions = [];
+    setSpareTimeDuration(60);
+    setSpareTimeMode('easy');
+    const easyIds = getSmartStudySuggestions({ minutes: 60 }, 'library', 3, 60).map(item => item.task.id);
+    setSpareTimeMode('focus');
+    const focusIds = getSmartStudySuggestions({ minutes: 60 }, 'library', 3, 60).map(item => item.task.id);
+    const invalidDuration = setSpareTimeDuration(45);
+    const saved = JSON.parse(localStorage.getItem('smart-calendar-v1')).context;
+    return JSON.stringify({ easyIds, focusIds, invalidDuration, saved });
+  })()`));
+
+  assert.deepEqual(result.easyIds, ['reading']);
+  assert.deepEqual(result.focusIds, ['writing']);
+  assert.equal(result.invalidDuration, false);
+  assert.deepEqual(result.saved, { location: 'library', fatigue: 3, duration: 60, mode: 'focus' });
+});
+
+test('character station warns about overloaded days and supports resting and resuming', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage);
+  const result = JSON.parse(app.run(`(() => {
+    const day = dateKey(today);
+    data.fixed = [{ id: 'long-day', name: '予定', day: today.getDay(), start: '07:00', end: '21:00', type: 'class' }];
+    data.tasks = [{ id: 'urgent', name: '明日期限', due: day, remaining: 5, done: false }];
+    data.sessions = [];
+    renderCharacterStation();
+    const overloaded = {
+      face: document.getElementById('characterAvatar').textContent,
+      message: document.getElementById('characterMessage').textContent,
+      warningHidden: document.getElementById('capacityPanic').hidden
+    };
+    document.getElementById('takeRestDay').dispatch('click', {});
+    const resting = { face: document.getElementById('characterAvatar').textContent, restDays: data.restDays };
+    document.getElementById('takeRestDay').dispatch('click', {});
+    return JSON.stringify({ overloaded, resting, resumed: data.restDays });
+  })()`));
+
+  assert.equal(result.overloaded.face, '🥺');
+  assert.match(result.overloaded.message, /無理はしないで/);
+  assert.equal(result.overloaded.warningHidden, false);
+  assert.equal(result.resting.face, '☕');
+  assert.equal(result.resting.restDays.length, 1);
+  assert.deepEqual(result.resumed, []);
+  assert.equal(JSON.parse(storage.get('smart-calendar-v1')).restDays.length, 0);
+});
+
+test('character station schedules a 20-minute task in the next open interval', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage);
+  const result = JSON.parse(app.run(`(() => {
+    data.fixed = [];
+    data.extras = [];
+    data.sessions = [];
+    data.tasks = [{ id: 'quick-task', name: '小テスト復習', due: dateKey(addDays(today, 2)), remaining: 1, done: false }];
+    data.context.mode = 'easy';
+    const added = startTwentyMinuteTask();
+    return JSON.stringify({ added, session: data.sessions[0] });
+  })()`));
+
+  assert.equal(result.added, true);
+  assert.equal(result.session.taskId, 'quick-task');
+  assert.equal(app.run('durationHours(data.sessions[0].start, data.sessions[0].end)'), 1 / 3);
+  assert.equal(JSON.parse(storage.get('smart-calendar-v1')).sessions[0].taskId, 'quick-task');
+});
+
+test('calendar keeps its existing grid layout while marking AI tasks, progress, and deadlines', () => {
+  const app = createAppHarness();
+  const result = JSON.parse(app.run(`(() => {
+    data.fixed = [];
+    data.extras = [];
+    data.sessions = [];
+    const due = dateKey(addDays(today, 5));
+    const plan = createStudyPlan({
+      name: 'レポート課題',
+      kind: 'report',
+      due,
+      workload: 1000,
+      difficulty: 3,
+      hours: 2,
+      credits: 2,
+      progress: 0,
+      scope: ''
+    });
+    const calendar = document.getElementById('calendarGrid').innerHTML;
+    toggleSession(data.sessions.find(session => session.taskId.startsWith(plan.id)).id);
+    return JSON.stringify({
+      calendar,
+      completedCalendar: document.getElementById('calendarGrid').innerHTML,
+      due
+    });
+  })()`));
+  const styles = Array.from(html.matchAll(/<style>([\s\S]*?)<\/style>/g), match => match[1]).join('\\n');
+
+  assert.match(styles, /\.calendar-grid\s*\{[^}]*min-width:\s*740px/);
+  assert.match(dashboardEnhancementsScript, /\.calendar-grid \.event\.ai-generated/);
+  assert.match(result.calendar, /ai-generated/);
+  assert.match(result.calendar, /<span class="ai-badge">AI<\/span>/);
+  assert.match(result.calendar, /0\/3完了（0%）/);
+  assert.match(result.calendar, /class="day-head[^"]*has-deadline"/);
+  assert.match(result.calendar, /締め切り/);
+  assert.match(result.completedCalendar, /1\/3完了（25%）/);
+});
+
+test('floating task button opens the existing task modal without replacing calendar controls', () => {
+  const app = createAppHarness();
+  app.document.getElementById('taskFab').dispatch('click', {});
+
+  assert.match(dashboardEnhancementsScript, /position: fixed; right: 24px; bottom: 24px; z-index: 9/);
+  assert.match(html, /\.modal-backdrop\{[^}]*z-index:10/);
+  assert.ok(app.document.getElementById('modalBackdrop').classList.added.includes('open'));
+  assert.equal(app.document.getElementById('eventType').value, 'task');
+  assert.match(html, /id="calendarGrid"/);
 });
 
 test('planning duration and actual session deviation persist for the selected week', () => {
@@ -707,4 +884,5 @@ test('GitHub Pages deploy waits for the passing test job', () => {
   assert.match(deployJob[1], /cp weekly-review\.js dist\/weekly-review\.js/);
   assert.match(deployJob[1], /cp study-planning\.js dist\/study-planning\.js/);
   assert.match(deployJob[1], /cp spare-time\.js dist\/spare-time\.js/);
+  assert.match(deployJob[1], /cp dashboard-enhancements\.js dist\/dashboard-enhancements\.js/);
 });

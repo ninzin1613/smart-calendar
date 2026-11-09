@@ -1,6 +1,8 @@
 data.context = data.context || { location: 'library', fatigue: 3 };
 if (!['library', 'cafe', 'home'].includes(data.context.location)) data.context.location = 'library';
 data.context.fatigue = Math.max(1, Math.min(5, Number(data.context.fatigue) || 3));
+data.context.duration = [15, 30, 60].includes(Number(data.context.duration)) ? Number(data.context.duration) : 30;
+data.context.mode = ['focus', 'easy'].includes(data.context.mode) ? data.context.mode : 'focus';
 
 document.getElementById('priorityPanel').insertAdjacentHTML('beforebegin', `
   <section class="spare-time-panel" id="spareTimePanel" aria-labelledby="spareTimeTitle">
@@ -23,6 +25,17 @@ document.getElementById('priorityPanel').insertAdjacentHTML('beforebegin', `
         <span id="studyFatigueLabel"></span>
       </label>
     </div>
+    <div class="spare-time-filters" aria-label="提案の条件">
+      <div class="spare-time-filter-group" role="group" aria-label="使える時間">
+        <button class="spare-time-filter" type="button" data-duration="15" aria-pressed="false">15分</button>
+        <button class="spare-time-filter" type="button" data-duration="30" aria-pressed="false">30分</button>
+        <button class="spare-time-filter" type="button" data-duration="60" aria-pressed="false">60分</button>
+      </div>
+      <div class="spare-time-filter-group" role="group" aria-label="作業モード">
+        <button class="spare-time-filter" type="button" data-mode="focus" aria-pressed="false">ガッツリ集中</button>
+        <button class="spare-time-filter" type="button" data-mode="easy" aria-pressed="false">ゆるめ作業</button>
+      </div>
+    </div>
     <div class="spare-time-status" id="spareTimeStatus" role="status" aria-live="polite"></div>
     <ol class="spare-time-suggestions" id="spareTimeSuggestions"></ol>
     <div class="spare-time-privacy">場所は手動で選択します。位置情報は取得せず、設定はこの端末に保存されます。</div>
@@ -40,6 +53,10 @@ spareTimeStyle.textContent = `
 .spare-time-fatigue { min-width: 180px; }
 .spare-time-fatigue input { width: 180px; accent-color: var(--green-dark); }
 .spare-time-fatigue span { color: #718563; font-size: 10px; }
+.spare-time-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+.spare-time-filter-group { display: inline-flex; gap: 3px; padding: 3px; border-radius: 7px; background: #f1f2eb; }
+.spare-time-filter { min-height: 28px; padding: 0 9px; border: 0; border-radius: 5px; background: transparent; color: #778075; font-size: 10px; }
+.spare-time-filter[aria-pressed="true"] { background: #fffefa; color: #202923; box-shadow: 0 1px 3px #dfe1d8; font-weight: 700; }
 .spare-time-status { margin-top: 12px; color: #557442; font-size: 11px; font-weight: 700; }
 .spare-time-status:empty { display: none; }
 .spare-time-suggestions { display: grid; gap: 7px; margin: 9px 0 0; padding: 0; list-style: none; }
@@ -120,16 +137,19 @@ function getTaskUnscheduledMinutes(task) {
   return Math.max(0, Math.ceil((Number(task.remaining) || 0) * 60 - scheduled));
 }
 
-function getSmartStudySuggestions(gap, location = data.context.location, fatigue = data.context.fatigue) {
+function getSmartStudySuggestions(gap, location = data.context.location, fatigue = data.context.fatigue, maxMinutes = 25, mode = null) {
   if (!gap || gap.minutes < 15) return [];
   const availableMinutes = Math.floor(gap.minutes / 5) * 5;
+  const selectedMode = mode || data.context.mode;
   return data.tasks
     .filter(task => !task.done && task.remaining > 0 && task.due >= dateKey(today))
     .map(task => {
       const taskMinutes = getTaskUnscheduledMinutes(task);
-      const minutes = Math.min(25, availableMinutes, taskMinutes);
+      const minutes = Math.min(maxMinutes, availableMinutes, taskMinutes);
       if (minutes < 15) return null;
       const activity = getStudyActivity(task);
+      if (selectedMode === 'focus' && activity === 'light') return null;
+      if (selectedMode === 'easy' && activity === 'deep') return null;
       const locationScore = {
         library: { light: 2, deep: 2, general: 1 },
         cafe: { light: 2, deep: -1, general: 1 },
@@ -140,9 +160,12 @@ function getSmartStudySuggestions(gap, location = data.context.location, fatigue
         : fatigue >= 4
           ? (activity === 'deep' ? 2 : 0)
           : 1;
+      const modeScore = selectedMode === 'focus'
+        ? (activity === 'deep' ? 3 : activity === 'general' ? 1 : -2)
+        : (activity === 'light' ? 3 : activity === 'general' ? 1 : -2);
       const plan = task.planId && data.plans.find(item => item.id === task.planId);
       const priorityScore = plan && typeof getPlanPriority === 'function' ? getPlanPriority(plan) : 0;
-      return { task, minutes, activity, score: locationScore + fatigueScore + Math.log1p(priorityScore) };
+      return { task, minutes, activity, score: locationScore + fatigueScore + modeScore + Math.log1p(priorityScore) };
     })
     .filter(Boolean)
     .sort((left, right) => right.score - left.score || left.task.due.localeCompare(right.task.due))
@@ -158,17 +181,30 @@ function renderSpareTimeSuggestions() {
   document.getElementById('studyFatigueLabel').textContent = fatigueLabels[fatigue];
   const status = document.getElementById('spareTimeStatus');
   const list = document.getElementById('spareTimeSuggestions');
-  const gap = getUpcomingStudyGaps()[0];
+  if (data.restDays?.includes(dateKey(today))) {
+    status.textContent = '今日は休息日に設定されています。ゆっくり休みましょう。';
+    list.innerHTML = '';
+    return;
+  }
+  const selectedMinutes = data.context.duration;
+  const gaps = getUpcomingStudyGaps();
+  const gap = gaps.find(item => item.minutes >= selectedMinutes);
+  for (const button of document.querySelectorAll('#spareTimePanel [data-duration]')) {
+    button.setAttribute('aria-pressed', String(Number(button.dataset.duration) === selectedMinutes));
+  }
+  for (const button of document.querySelectorAll('#spareTimePanel [data-mode]')) {
+    button.setAttribute('aria-pressed', String(button.dataset.mode === data.context.mode));
+  }
 
   if (!gap) {
-    status.textContent = '今後7日間に15分以上の空き時間は見つかりませんでした。';
+    status.textContent = `今後7日間に${selectedMinutes}分以上の空き時間は見つかりませんでした。`;
     list.innerHTML = '';
     return;
   }
   const locationName = { library: '図書館', cafe: 'カフェ', home: '自宅' }[data.context.location];
   const gapName = gap.classGap && gap.minutes >= 60 ? '授業の空きコマ' : '次の空き時間';
   status.textContent = `${gap.day} ${formatGapTime(gap.start)}〜${formatGapTime(gap.end)}（${gap.minutes}分）${gapName} · ${locationName}`;
-  const suggestions = getSmartStudySuggestions(gap, data.context.location, fatigue);
+  const suggestions = getSmartStudySuggestions(gap, data.context.location, fatigue, selectedMinutes);
   if (!suggestions.length) {
     list.innerHTML = '<li class="spare-time-note">この空き時間に無理なく終えられる未配置の課題はありません。</li>';
     return;
@@ -191,8 +227,8 @@ function renderSpareTimeSuggestions() {
 
 function scheduleSpareTimeTask(taskId) {
   const task = data.tasks.find(item => item.id === taskId && !item.done);
-  const gap = getUpcomingStudyGaps()[0];
-  const suggestion = task && getSmartStudySuggestions(gap, data.context.location, data.context.fatigue)
+  const gap = getUpcomingStudyGaps().find(item => item.minutes >= data.context.duration);
+  const suggestion = task && getSmartStudySuggestions(gap, data.context.location, data.context.fatigue, data.context.duration)
     .find(item => item.task.id === taskId);
   if (!task || !gap || !suggestion) {
     showToast('空き時間または課題の状態が変わりました。提案を更新しました');
@@ -218,23 +254,52 @@ function addStudySuggestionSession(task, gap, minutes) {
     type: 'study',
     done: false
   });
+  data.recentlyScheduledSessionIds = [data.sessions.at(-1).id];
   save();
   renderCalendar();
   renderTasks();
+  setTimeout(() => {
+    data.recentlyScheduledSessionIds = [];
+    renderCalendar();
+  }, 900);
   showToast(`${minutes}分の学習予定を空き時間に追加しました`);
   return true;
 }
 
 function saveStudyContext() {
-  data.context = { location: studyLocation.value, fatigue: Number(studyFatigue.value) };
+  data.context = {
+    ...data.context,
+    location: studyLocation.value,
+    fatigue: Number(studyFatigue.value)
+  };
   save();
   renderSpareTimeSuggestions();
+}
+
+function setSpareTimeDuration(minutes) {
+  if (![15, 30, 60].includes(Number(minutes))) return false;
+  data.context.duration = Number(minutes);
+  saveStudyContext();
+  return true;
+}
+
+function setSpareTimeMode(mode) {
+  if (!['focus', 'easy'].includes(mode)) return false;
+  data.context.mode = mode;
+  saveStudyContext();
+  return true;
 }
 
 studyLocation.value = data.context.location;
 studyFatigue.value = data.context.fatigue;
 studyLocation.addEventListener('change', saveStudyContext);
 studyFatigue.addEventListener('input', saveStudyContext);
+document.querySelectorAll('#spareTimePanel [data-duration]').forEach(button => {
+  button.addEventListener('click', () => setSpareTimeDuration(button.dataset.duration));
+});
+document.querySelectorAll('#spareTimePanel [data-mode]').forEach(button => {
+  button.addEventListener('click', () => setSpareTimeMode(button.dataset.mode));
+});
 
 const renderTasksWithSpareTime = renderTasks;
 renderTasks = (...args) => {
