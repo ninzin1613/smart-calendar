@@ -835,6 +835,72 @@ test('floating task button opens the existing task modal without replacing calen
   assert.match(html, /id="calendarGrid"/);
 });
 
+test('workspace task navigation opens the complete task list without opening the add form', () => {
+  const app = createAppHarness();
+  app.run(`(() => {
+    data.plans.push({ id: 'archived-plan', kind: 'exam' });
+    data.tasks.push({
+      id: 'archived-test',
+      planId: 'archived-plan',
+      name: '歴史学期末テスト',
+      phase: '直前確認',
+      scope: '第1章〜第4章',
+      due: dateKey(addDays(today, 2)),
+      hours: 1,
+      remaining: 0,
+      done: true,
+      order: 1
+    });
+    renderTasks();
+  })()`);
+  app.document.getElementById('tasksNav').dispatch('click', {});
+
+  const list = app.document.getElementById('taskOverviewList').innerHTML;
+  assert.equal(app.document.getElementById('taskOverview').hidden, false);
+  assert.match(list, /歴史学期末テスト · 直前確認/);
+  assert.match(list, /テスト/);
+  assert.match(list, /完了/);
+  assert.match(app.document.getElementById('taskOverviewSummary').textContent, /全4件/);
+  assert.equal(app.document.getElementById('modalBackdrop').classList.added.includes('open'), false);
+  assert.ok(app.document.body.classList.added.includes('task-overview-active'));
+
+  app.document.querySelector('.nav-item.active').dispatch('click', {});
+  assert.equal(app.document.getElementById('taskOverview').hidden, true);
+  assert.equal(app.document.body.classList.added.includes('task-overview-active'), false);
+});
+
+test('opening a task in the list shows its saved plan details and lets the user collapse them', () => {
+  const app = createAppHarness();
+  const result = JSON.parse(app.run(`(() => {
+    const plan = createStudyPlan({
+      name: '生物学期末テスト',
+      kind: 'exam',
+      due: dateKey(addDays(today, 7)),
+      workload: 40,
+      difficulty: 4,
+      hours: 2,
+      credits: 3,
+      progress: 25,
+      scope: '教科書 p.50〜100'
+    });
+    const task = data.tasks.find(item => item.planId === plan.id);
+    toggleTaskDetail(task.id);
+    const expanded = document.getElementById('taskOverviewList').innerHTML;
+    toggleTaskDetail(task.id);
+    const collapsed = document.getElementById('taskOverviewList').innerHTML;
+    return JSON.stringify({ expanded, collapsed });
+  })()`));
+
+  assert.match(result.expanded, /aria-expanded="true"/);
+  assert.match(result.expanded, /40ページ/);
+  assert.match(result.expanded, /4\/5/);
+  assert.match(result.expanded, /3単位/);
+  assert.match(result.expanded, /教科書 p\.50〜100/);
+  assert.match(result.expanded, /約0\.7時間/);
+  assert.match(result.collapsed, /aria-expanded="false"/);
+  assert.match(result.collapsed, /task-overview-details[^>]* hidden/);
+});
+
 test('planning duration and actual session deviation persist for the selected week', () => {
   const storage = new Map();
   const app = createAppHarness(storage);

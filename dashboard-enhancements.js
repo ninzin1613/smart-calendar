@@ -20,6 +20,19 @@ document.body.insertAdjacentHTML('beforeend', `
   <button class="task-fab" type="button" id="taskFab" aria-label="課題・テストを追加">＋ <span>課題・テスト追加</span></button>
 `);
 
+document.querySelector('.main').insertAdjacentHTML('beforeend', `
+  <section class="task-overview" id="taskOverview" aria-labelledby="taskOverviewTitle" hidden>
+    <div class="task-overview-heading">
+      <div>
+        <div class="eyebrow">MY STUDY PLAN</div>
+        <h1 id="taskOverviewTitle">課題・テスト一覧</h1>
+        <div class="task-overview-summary" id="taskOverviewSummary"></div>
+      </div>
+    </div>
+    <div class="task-overview-list" id="taskOverviewList"></div>
+  </section>
+`);
+
 const enhancementStyle = document.createElement('style');
 enhancementStyle.textContent = `
 .character-station { display: flex; align-items: center; gap: 14px; margin: 16px 0; padding: 14px 16px; border: 1px solid #e4ebf4; border-radius: 10px; background: #fffefa; box-shadow: var(--shadow); }
@@ -44,10 +57,144 @@ enhancementStyle.textContent = `
 .calendar-grid .deadline-mark { margin-left: 2px; color: #c45c45; font: 10px var(--sans); vertical-align: 2px; }
 .calendar-grid .event.ai-new { animation: ai-session-arrive .45s ease-out both; }
 @keyframes ai-session-arrive { from { opacity: 0; transform: translateY(-8px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.task-overview { min-height: 60vh; padding: 18px 0; }
+.task-overview[hidden] { display: none; }
+.task-overview-heading { margin-bottom: 20px; }
+.task-overview-heading .eyebrow { margin-bottom: 5px; }
+.task-overview-heading h1 { font-size: 24px; }
+.task-overview-summary { margin-top: 7px; color: #828b81; font-size: 11px; }
+.task-overview-list { display: grid; gap: 9px; max-width: 860px; }
+.task-overview-card { border: 1px solid #e8e9e0; border-radius: 8px; background: var(--white); overflow: hidden; }
+.task-overview-row { min-height: 66px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
+.task-overview-row .task-info { flex: 1; }
+.task-overview-row .task-title { white-space: normal; }
+.task-overview-trigger { display: inline-flex; align-items: center; flex-wrap: wrap; padding: 0; border: 0; background: transparent; text-align: left; font-size: 11px; font-weight: 700; }
+.task-overview-trigger:hover .task-overview-name { color: var(--green-dark); text-decoration: underline; }
+.task-overview-kind { display: inline-block; margin-left: 7px; padding: 2px 6px; border-radius: 10px; background: #edf2e4; color: #557442; font-size: 9px; vertical-align: 1px; }
+.task-overview-status { display: grid; justify-items: end; gap: 4px; color: #828b81; font-size: 10px; white-space: nowrap; }
+.task-overview-details-link { color: #718563; font-size: 9px; }
+.task-overview-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; padding: 12px 16px 15px 42px; border-top: 1px solid #eff0e9; background: #fcfcf8; }
+.task-overview-details[hidden] { display: none; }
+.task-overview-detail { min-width: 0; }
+.task-overview-detail-label { color: #828b81; font-size: 9px; }
+.task-overview-detail-value { margin-top: 3px; font-size: 11px; overflow-wrap: anywhere; }
+.task-overview-detail-wide { grid-column: 1 / -1; }
+.task-overview-row.is-done { opacity: .65; }
+.task-overview-row.is-done .task-title { text-decoration: line-through; }
+body.task-overview-active .main > :not(.topbar):not(#taskOverview) { display: none; }
+body.task-overview-active #taskOverview { display: block; }
 @media (prefers-reduced-motion: reduce) { .calendar-grid .event.ai-new { animation: none; } }
 @media (max-width: 680px) { .character-station { align-items: flex-start; flex-wrap: wrap; } .character-avatar { flex-basis: 40px; width: 40px; height: 40px; font-size: 24px; } .character-message { flex-basis: calc(100% - 55px); } .capacity-panic { margin-left: 54px; } .task-fab { right: 14px; bottom: 14px; min-height: 44px; padding: 0 14px; } }
 `;
 document.head.appendChild(enhancementStyle);
+
+function renderTaskOverview() {
+  const list = document.getElementById('taskOverviewList');
+  const tasks = [...data.tasks].sort((left, right) =>
+    Number(Boolean(left.done)) - Number(Boolean(right.done))
+      || left.due.localeCompare(right.due)
+      || (left.order || 0) - (right.order || 0)
+  );
+  const openCount = tasks.filter(task => !task.done && task.remaining > 0).length;
+  document.getElementById('taskOverviewSummary').textContent =
+    `${openCount}件が未完了 · 全${tasks.length}件`;
+
+  if (!tasks.length) {
+    list.innerHTML = '<div class="empty-state">課題・テストはまだありません。</div>';
+    return;
+  }
+
+  list.innerHTML = tasks.map(task => {
+    const plan = task.planId && data.plans.find(item => item.id === task.planId);
+    const completed = Boolean(task.done || task.remaining <= 0);
+    const daysLeft = Math.ceil((new Date(`${task.due}T00:00:00`) - today) / 86400000);
+    const dueText = daysLeft < 0 ? `${Math.abs(daysLeft)}日超過` : daysLeft === 0 ? '今日が締切' : `${daysLeft}日後`;
+    const name = task.phase ? `${escapeHTML(task.name)} · ${escapeHTML(task.phase)}` : escapeHTML(task.name);
+    const kind = plan?.kind === 'exam' || /テスト|試験/.test(task.name)
+      ? 'テスト'
+      : plan?.kind === 'report'
+        ? 'レポート'
+        : plan?.kind === 'reading'
+          ? '読書'
+          : '課題';
+    const scope = task.scope ? ` · 範囲 ${escapeHTML(task.scope)}` : '';
+    const detailId = `task-details-${task.id}`;
+    const expanded = activeTaskDetailId === task.id;
+    const workloadUnit = plan?.kind === 'report' ? '文字' : 'ページ';
+    const planProgress = plan
+      ? getPlanProgress(plan.id).percent
+      : task.hours > 0
+        ? Math.round((1 - Number(task.remaining || 0) / task.hours) * 100)
+        : 0;
+    const details = [
+      ['種類', kind],
+      ['締切', `${fmtDate(new Date(`${task.due}T00:00:00`))}（${dueText}）`],
+      ['必要な学習時間', plan ? `${Number(plan.estimatedHours)}時間` : `${Number(task.hours || 0)}時間`],
+      ['現在の進捗', `${Math.max(0, Math.min(100, planProgress))}%`]
+    ];
+    if (plan) {
+      details.push(
+        ['課題量', `${Number(plan.workload)}${workloadUnit}`],
+        ['難易度', `${Number(plan.difficulty)}/5`],
+        ['単位数', `${Number(plan.credits)}単位`]
+      );
+    }
+    if (plan?.kind === 'exam' || task.scope) details.push(['テスト範囲', task.scope || plan.scope || '未設定']);
+    if (task.phase) {
+      const phaseHours = Number(task.hours || 0);
+      details.push(['この小タスク', `${task.phase} · 約${phaseHours.toFixed(phaseHours % 1 ? 1 : 0)}時間`]);
+    }
+    details.push(['残り時間', `${Number(task.remaining || 0).toFixed(Number(task.remaining || 0) % 1 ? 1 : 0)}時間`]);
+    const detailMarkup = details.map(([label, value]) =>
+      `<div class="task-overview-detail${label === 'テスト範囲' || label === 'この小タスク' ? ' task-overview-detail-wide' : ''}"><div class="task-overview-detail-label">${label}</div><div class="task-overview-detail-value">${escapeHTML(String(value))}</div></div>`
+    ).join('');
+
+    return `<div class="task-overview-card"><article class="task-overview-row${completed ? ' is-done' : ''}"><input class="check" type="checkbox" aria-label="${escapeHTML(task.name)}を完了" data-overview-task="${escapeHTML(task.id)}"${completed ? ' checked' : ''}><div class="task-info"><button class="task-overview-trigger" type="button" data-task-detail="${escapeHTML(task.id)}" aria-expanded="${expanded}" aria-controls="${escapeHTML(detailId)}"><span class="task-overview-name">${name}</span><span class="task-overview-kind">${kind}</span></button><div class="task-meta">残り約${Number(task.remaining || 0).toFixed(Number(task.remaining || 0) % 1 ? 1 : 0)}時間 · ${fmtDate(new Date(`${task.due}T00:00:00`))}締め切り${scope}</div></div><div class="task-overview-status">${completed ? '完了' : dueText}<span class="task-overview-details-link">${expanded ? '詳細を閉じる' : '詳細を見る'}</span></div></article><section class="task-overview-details" id="${escapeHTML(detailId)}" aria-label="${escapeHTML(task.name)}の詳細"${expanded ? '' : ' hidden'}>${detailMarkup}</section></div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-task-detail]').forEach(element => element.addEventListener('click', () => {
+    toggleTaskDetail(element.dataset.taskDetail);
+  }));
+  list.querySelectorAll('[data-overview-task]').forEach(element => element.addEventListener('change', () => {
+    const task = data.tasks.find(item => item.id === element.dataset.overviewTask);
+    if (!task) return;
+    task.done = element.checked;
+    task.remaining = element.checked ? 0 : task.hours;
+    data.sessions = data.sessions.filter(session => session.taskId !== task.id);
+    save();
+    renderTasks();
+    renderCalendar();
+    showToast(element.checked ? '課題を完了にしました' : '課題を未完了に戻しました');
+  }));
+}
+
+let activeTaskDetailId = null;
+
+function toggleTaskDetail(taskId) {
+  activeTaskDetailId = activeTaskDetailId === taskId ? null : taskId;
+  renderTaskOverview();
+}
+
+const calendarNav = document.querySelector('.nav-item.active');
+
+function showTaskOverview() {
+  document.body.classList.add('task-overview-active');
+  document.getElementById('taskOverview').hidden = false;
+  calendarNav.classList.remove('active');
+  document.getElementById('tasksNav').classList.add('active');
+  renderTaskOverview();
+}
+
+function showCalendarOverview() {
+  document.body.classList.remove('task-overview-active');
+  document.getElementById('taskOverview').hidden = true;
+  document.getElementById('tasksNav').classList.remove('active');
+  calendarNav.classList.add('active');
+}
+
+document.getElementById('tasksNav').addEventListener('click', showTaskOverview);
+document.getElementById('allTasks').addEventListener('click', showTaskOverview);
+calendarNav.addEventListener('click', showCalendarOverview);
 
 function getTodayCapacity() {
   const gaps = getUpcomingStudyGaps(new Date(), 1);
@@ -207,6 +354,7 @@ addStudySuggestionSession = (...args) => {
 const renderTasksWithCharacter = renderTasks;
 renderTasks = (...args) => {
   renderTasksWithCharacter(...args);
+  renderTaskOverview();
   renderCharacterStation();
 };
 
