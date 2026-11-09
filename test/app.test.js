@@ -25,6 +25,9 @@ function createAppHarness(values = new Map()) {
       add(value) { this.added.push(value); },
       remove(value) { this.added = this.added.filter(item => item !== value); }
     },
+    attributes: new Map(),
+    setAttribute(name, value) { this.attributes.set(name, value); },
+    getAttribute(name) { return this.attributes.get(name) || null; },
     listeners: new Map(),
     formValues: {},
     addEventListener(name, listener, options = {}) {
@@ -748,23 +751,51 @@ test('character station warns about overloaded days and supports resting and res
     data.sessions = [];
     renderCharacterStation();
     const overloaded = {
-      face: document.getElementById('characterAvatar').textContent,
+      markup: document.getElementById('characterAvatar').innerHTML,
+      label: document.getElementById('characterAvatar').getAttribute('aria-label'),
       message: document.getElementById('characterMessage').textContent,
       warningHidden: document.getElementById('capacityPanic').hidden
     };
     document.getElementById('takeRestDay').dispatch('click', {});
-    const resting = { face: document.getElementById('characterAvatar').textContent, restDays: data.restDays };
+    const resting = { markup: document.getElementById('characterAvatar').innerHTML, restDays: data.restDays };
     document.getElementById('takeRestDay').dispatch('click', {});
     return JSON.stringify({ overloaded, resting, resumed: data.restDays });
   })()`));
 
-  assert.equal(result.overloaded.face, '🥺');
+  assert.match(result.overloaded.markup, /data-mood="concerned"/);
+  assert.equal(result.overloaded.label, 'TASKROU、心配の表情');
   assert.match(result.overloaded.message, /無理はしないで/);
   assert.equal(result.overloaded.warningHidden, false);
-  assert.equal(result.resting.face, '☕');
+  assert.match(result.resting.markup, /data-mood="resting"/);
   assert.equal(result.resting.restDays.length, 1);
   assert.deepEqual(result.resumed, []);
   assert.equal(JSON.parse(storage.get('smart-calendar-v1')).restDays.length, 0);
+});
+
+test('AI character is rendered as inline owl artwork with a mood-specific expression', () => {
+  const app = createAppHarness();
+  const rawResult = app.run(`(() => {
+    data.fixed = [];
+    data.extras = [];
+    data.sessions = [];
+    data.tasks = [{ id: 'priority', name: '小テスト対策', due: dateKey(addDays(today, 3)), hours: 2, remaining: 2, done: false }];
+    data.plans = [];
+    renderCharacterStation();
+    return JSON.stringify({
+      markup: document.getElementById('characterAvatar').innerHTML,
+      label: document.getElementById('characterAvatar').getAttribute('aria-label')
+    });
+  })()`);
+  const result = JSON.parse(rawResult);
+
+  assert.match(result.markup, /<svg class="owl-mascot" data-mood="encouraging"/);
+  assert.match(result.markup, /class="owl-glasses"/);
+  assert.match(result.markup, /class="owl-clock"/);
+  assert.match(result.markup, /class="owl-quill"/);
+  assert.equal(result.label, 'TASKROU、応援の表情');
+  assert.match(dashboardEnhancementsScript, /TASKROU · AI STUDY COMPANION/);
+  assert.match(dashboardEnhancementsScript, /owl-mascot\[data-mood="concerned"\]/);
+  assert.match(dashboardEnhancementsScript, /owl-mascot\[data-mood="celebratory"\]/);
 });
 
 test('character station schedules a 20-minute task in the next open interval', () => {

@@ -3,9 +3,9 @@ data.recentlyScheduledSessionIds = [];
 
 document.querySelector('.calendar-shell').insertAdjacentHTML('beforebegin', `
   <section class="character-station" id="characterStation" aria-labelledby="characterStationTitle">
-    <div class="character-avatar" id="characterAvatar" aria-hidden="true">🙂</div>
+    <div class="character-avatar" id="characterAvatar" role="img"></div>
     <div class="character-message">
-      <div class="character-title" id="characterStationTitle">今日のひとこと</div>
+      <div class="character-title" id="characterStationTitle"><span class="character-brand">TASKROU · AI STUDY COMPANION</span><span>今日のひとこと</span></div>
       <div class="character-bubble" id="characterMessage"></div>
       <div class="character-actions">
         <button class="primary-btn character-start" type="button" id="startTwentyMinuteTask">▶ 今すぐ20分作業する</button>
@@ -35,10 +35,33 @@ document.querySelector('.main').insertAdjacentHTML('beforeend', `
 
 const enhancementStyle = document.createElement('style');
 enhancementStyle.textContent = `
-.character-station { display: flex; align-items: center; gap: 14px; margin: 16px 0; padding: 14px 16px; border: 1px solid #e4ebf4; border-radius: 10px; background: #fffefa; box-shadow: var(--shadow); }
-.character-avatar { display: grid; flex: 0 0 48px; width: 48px; height: 48px; place-items: center; border-radius: 16px; background: #fff2c8; font-size: 29px; }
+.character-station { display: flex; align-items: center; gap: 14px; margin: 16px 0; padding: 12px 16px; border: 1px solid #e5dfcd; border-radius: 12px; background: linear-gradient(110deg, #fffdf6 0%, #fffefa 56%, #f0f7f5 100%); box-shadow: var(--shadow); }
+.character-avatar { display: grid; flex: 0 0 112px; width: 112px; height: 112px; place-items: center; border: 1px solid #e8dfc7; border-radius: 22px; background: radial-gradient(circle at 50% 35%, #fff8df 0, #f8edc8 72%, #f0e5c4 100%); }
+.owl-mascot { display: block; width: 100px; height: 106px; overflow: visible; filter: drop-shadow(0 3px 1px rgba(71, 58, 39, .12)); }
+.owl-body { fill: #f2cf72; stroke: #59432c; stroke-width: 2.4; stroke-linejoin: round; }
+.owl-face { fill: #fff4d9; stroke: #755636; stroke-width: 1.8; }
+.owl-wing { fill: #e7b958; stroke: #765437; stroke-width: 1.8; stroke-linejoin: round; }
+.owl-feather { fill: #fff4d9; stroke: #b48b4e; stroke-width: 1; }
+.owl-glasses { fill: #dcebe2; fill-opacity: .3; stroke: #705a3e; stroke-width: 2.4; }
+.owl-glasses-shine { fill: none; stroke: #fffdf0; stroke-width: 1.5; stroke-linecap: round; }
+.owl-eye { fill: #fffdf3; stroke: #73583a; stroke-width: 1.1; }
+.owl-pupil { fill: #51402f; }
+.owl-eye-glint { fill: #fff; }
+.owl-beak, .owl-feet, .owl-clock { stroke: #62472e; stroke-linecap: round; stroke-linejoin: round; }
+.owl-beak { fill: #bf8050; stroke-width: 1.5; }
+.owl-feet { fill: none; stroke-width: 2.8; }
+.owl-clock { fill: #fff2ce; stroke-width: 1.7; }
+.owl-clock-hand { fill: none; stroke: #62472e; stroke-width: 1.4; stroke-linecap: round; }
+.owl-brow, .owl-mouth { fill: none; stroke: #62472e; stroke-width: 1.8; stroke-linecap: round; }
+.owl-quill { fill: #77968c; stroke: #59432c; stroke-width: 1.4; stroke-linejoin: round; }
+.owl-sparkle { fill: #d49843; stroke: #a97936; stroke-width: .8; }
+.owl-sweat { fill: #88b9c3; stroke: #547f89; stroke-width: 1; }
+.owl-mascot[data-mood="concerned"] .owl-body { fill: #e9c678; }
+.owl-mascot[data-mood="resting"] .owl-eye-glint { display: none; }
+.owl-mascot[data-mood="celebratory"] .owl-sparkle { fill: #e7a74f; }
+.character-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 9px; margin-bottom: 5px; color: #718563; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+.character-brand { color: #9c8050; font-size: 8px; letter-spacing: .11em; }
 .character-message { flex: 1; min-width: 0; }
-.character-title { margin-bottom: 5px; color: #718563; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
 .character-bubble { width: fit-content; max-width: 100%; padding: 8px 11px; border-radius: 4px 11px 11px; background: #f2f5ed; font-size: 12px; line-height: 1.5; }
 .character-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
 .character-actions button { min-height: 31px; height: 31px; font-size: 10px; }
@@ -84,9 +107,46 @@ enhancementStyle.textContent = `
 body.task-overview-active .main > :not(.topbar):not(#taskOverview) { display: none; }
 body.task-overview-active #taskOverview { display: block; }
 @media (prefers-reduced-motion: reduce) { .calendar-grid .event.ai-new { animation: none; } }
-@media (max-width: 680px) { .character-station { align-items: flex-start; flex-wrap: wrap; } .character-avatar { flex-basis: 40px; width: 40px; height: 40px; font-size: 24px; } .character-message { flex-basis: calc(100% - 55px); } .capacity-panic { margin-left: 54px; } .task-fab { right: 14px; bottom: 14px; min-height: 44px; padding: 0 14px; } }
+@media (max-width: 680px) { .character-station { align-items: flex-start; flex-wrap: wrap; } .character-avatar { flex-basis: 76px; width: 76px; height: 80px; } .owl-mascot { width: 72px; height: 77px; } .character-message { flex-basis: calc(100% - 92px); } .capacity-panic { margin-left: 90px; } .task-fab { right: 14px; bottom: 14px; min-height: 44px; padding: 0 14px; } }
 `;
 document.head.appendChild(enhancementStyle);
+
+let characterCelebrationUntil = 0;
+
+function getOwlMarkup(mood) {
+  const eyes = mood === 'resting'
+    ? '<path class="owl-eye" d="M25 57q11 9 22 0m16 0q11 9 22 0"/>'
+    : '<ellipse class="owl-eye" cx="42" cy="55" rx="11" ry="13"/><ellipse class="owl-eye" cx="78" cy="55" rx="11" ry="13"/><circle class="owl-pupil" cx="43" cy="56" r="6.3"/><circle class="owl-pupil" cx="77" cy="56" r="6.3"/><circle class="owl-eye-glint" cx="45" cy="53" r="2"/><circle class="owl-eye-glint" cx="79" cy="53" r="2"/>';
+  const brows = mood === 'concerned'
+    ? '<path class="owl-brow" d="m30 38 15 5m45-5-15 5"/>'
+    : mood === 'encouraging' || mood === 'celebratory'
+        ? '<path class="owl-brow" d="m30 40 15-3m45 3-15-3"/>'
+      : '';
+  const mouth = mood === 'celebratory'
+    ? '<path class="owl-mouth" d="M53 76q7 9 14 0"/>'
+    : '<path class="owl-mouth" d="m55 75 5 5 5-5"/>';
+  const extras = mood === 'concerned'
+    ? '<path class="owl-sweat" d="M99 48q-6 8 0 11 6-3 0-11z"/>'
+    : mood === 'encouraging'
+        ? '<path class="owl-sparkle" d="m103 35 2 4 4 1-4 2-2 4-1-4-4-2 4-1z"/>'
+      : mood === 'celebratory'
+          ? '<path class="owl-sparkle" d="m16 41 2 4 4 1-4 2-2 4-1-4-4-2 4-1z"/><path class="owl-sparkle" d="m103 59 2 3 3 1-3 2-2 3-1-3-3-2 3-1z"/>'
+        : '';
+  return `<svg class="owl-mascot" data-mood="${mood}" viewBox="0 0 120 130" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path class="owl-quill" d="M62 27Q69 7 96 8q-7 18-31 27l-8 7-3-4z"/><path d="m61 34 27-22m-15 13-1-10m-7 17 10-2m-5-10 9 2" fill="none" stroke="#70543a" stroke-width="1.4"/>
+    <path class="owl-body" d="M28 43Q17 35 17 20q14 3 25 16 18-10 36 0 11-13 25-16-1 15-12 24 15 12 14 37-1 27-25 36-20 9-40 0-24-9-25-36-1-25 13-38z"/>
+    <path class="owl-face" d="M21 53q7-21 25-21 8 0 14 6 7-6 15-6 19 0 25 22-5 21-20 31-10 7-20 7-11 0-21-7Q25 75 21 53z"/>
+    <path class="owl-wing" d="M23 58Q9 64 13 83q2 15 17 21 9 2 14-13z"/><path class="owl-wing" d="M97 58q14 6 10 25-2 15-17 21-9 2-14-13z"/>
+    <path class="owl-feather" d="m23 77 17 18m-19-9 12 13m64-22L80 95m19-9-12 13"/>
+    <path class="owl-feather" d="M42 83q7 12 18 13l-6 10q-11-5-16-15zm18 13q12-1 19-13l6 8q-7 13-19 16z"/>
+    ${brows}${eyes}
+    <circle class="owl-glasses" cx="42" cy="55" r="17"/><circle class="owl-glasses" cx="78" cy="55" r="17"/><path d="M59 53q1-3 2 0m-2 1q-2-3-1-4" fill="none" stroke="#705a3e" stroke-width="2.5" stroke-linecap="round"/><path class="owl-glasses-shine" d="M30 46q4-5 9-5m31 5q4-5 9-5"/>
+    <path class="owl-beak" d="m55 68 5-6 5 6-5 9z"/>${mouth}
+    <circle class="owl-clock" cx="60" cy="99" r="11"/><circle cx="60" cy="99" r="8" fill="none" stroke="#b48b4e" stroke-width=".8"/><path class="owl-clock-hand" d="M60 92v7l5 3"/><circle cx="60" cy="99" r="1.4" fill="#62472e"/>
+    <path class="owl-feet" d="m46 115-2 8-7 2m8-4 5 5m24-11 2 8 7 2m-9-4-5 5"/>
+    ${extras}
+  </svg>`;
+}
 
 function renderTaskOverview() {
   const list = document.getElementById('taskOverviewList');
@@ -162,8 +222,15 @@ function renderTaskOverview() {
     task.remaining = element.checked ? 0 : task.hours;
     data.sessions = data.sessions.filter(session => session.taskId !== task.id);
     save();
+    if (element.checked) characterCelebrationUntil = Date.now() + 2600;
     renderTasks();
     renderCalendar();
+    if (element.checked) {
+      setTimeout(() => {
+        characterCelebrationUntil = 0;
+        renderCharacterStation();
+      }, 2600);
+    }
     showToast(element.checked ? '課題を完了にしました' : '課題を未完了に戻しました');
   }));
 }
@@ -220,24 +287,35 @@ function renderCharacterStation() {
   const capacity = getTodayCapacity();
   const priority = typeof getPriorityPlans === 'function' ? getPriorityPlans()[0] : null;
   const overdue = data.tasks.some(task => !task.done && task.due < dateKey(today));
+  let mood = 'standard';
 
   if (capacity.isOverloaded && !isRestDay) {
-    avatar.textContent = '🥺';
+    mood = 'concerned';
     message.textContent = '今日は予定が詰まり気味。できる分だけで大丈夫、無理はしないで！';
   } else if (isRestDay) {
-    avatar.textContent = '☕';
+    mood = 'resting';
     message.textContent = '今日は休息の日。しっかり休んで、また明日から少しずつ。';
   } else if (overdue) {
-    avatar.textContent = '💪';
+    mood = 'concerned';
     message.textContent = '期限を過ぎた課題があります。まずは小さな一歩から始めましょう。';
+  } else if (Date.now() < characterCelebrationUntil) {
+    mood = 'celebratory';
+    message.textContent = '課題を完了！よく頑張りました。少し休憩しましょう。';
   } else if (priority) {
-    avatar.textContent = '✨';
+    mood = 'encouraging';
     message.textContent = `次は「${priority.name}」がおすすめ。20分だけでも進めれば大丈夫！`;
   } else {
-    avatar.textContent = '🙂';
     message.textContent = '今日もいいペースです。空き時間にできることから始めましょう。';
   }
 
+  avatar.innerHTML = getOwlMarkup(mood);
+  avatar.setAttribute('aria-label', `TASKROU、${{
+    standard: '通常',
+    encouraging: '応援',
+    concerned: '心配',
+    resting: '休息',
+    celebratory: 'お祝い'
+  }[mood]}の表情`);
   warning.hidden = !capacity.isOverloaded || isRestDay;
   warning.textContent = `⚠️ 今日は無理しないで！ 空き ${capacity.availableMinutes}分 · 期限が近い課題 ${capacity.demandMinutes}分`;
   startButton.disabled = isRestDay;
