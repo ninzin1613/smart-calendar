@@ -8,8 +8,10 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const appScripts = Array.from(html.matchAll(/<script>([\s\S]*?)<\/script>/g), match => match[1]);
 const reviewScript = fs.readFileSync(path.join(__dirname, '..', 'weekly-review.js'), 'utf8');
 const studyPlanningScript = fs.readFileSync(path.join(__dirname, '..', 'study-planning.js'), 'utf8');
+const spareTimeScript = fs.readFileSync(path.join(__dirname, '..', 'spare-time.js'), 'utf8');
 assert.match(html, /<script src="\.\/weekly-review\.js"><\/script>/, 'index.html must load the weekly review script');
 assert.match(html, /<script src="\.\/study-planning\.js"><\/script>/, 'index.html must load the study planning script');
+assert.match(html, /<script src="\.\/spare-time\.js"><\/script>/, 'index.html must load the spare-time suggestion script');
 assert.ok(appScripts.length, 'index.html must contain the application script');
 
 function createAppHarness(values = new Map()) {
@@ -69,11 +71,13 @@ function createAppHarness(values = new Map()) {
     FormData: FormDataStub,
     structuredClone(value) { return structuredClone(value); },
     setTimeout() { return 1; },
+    setInterval() { return 1; },
     clearTimeout() {}
   });
   for (const [index, script] of appScripts.entries()) new vm.Script(script, { filename: `index.html#script-${index + 1}` }).runInContext(context);
   new vm.Script(reviewScript, { filename: 'weekly-review.js' }).runInContext(context);
   new vm.Script(studyPlanningScript, { filename: 'study-planning.js' }).runInContext(context);
+  new vm.Script(spareTimeScript, { filename: 'spare-time.js' }).runInContext(context);
   return {
     document,
     run(source) { return vm.runInContext(source, context); }
@@ -557,6 +561,103 @@ test('task form submission creates a local plan and requires a test scope', () =
   assert.equal(app.run("createStudyPlan({ name: '範囲なし', kind: 'exam', due: dateKey(addDays(today, 3)), workload: 10, difficulty: 3, hours: 1, credits: 1, progress: 0, scope: '' })"), null);
 });
 
+test('spare-time detection finds a 90-minute gap between class periods', () => {
+  const app = createAppHarness();
+  const result = JSON.parse(app.run(`(() => {
+    const date = addDays(today, 1);
+    data.fixed = [
+      { id: 'class-a', name: '1限', day: date.getDay(), start: '09:00', end: '10:30', type: 'class' },
+      { id: 'class-b', name: '2限', day: date.getDay(), start: '12:00', end: '13:30', type: 'class' }
+    ];
+    data.extras = [];
+    data.sessions = [];
+    return JSON.stringify(getDayStudyGaps(date, 7 * 60));
+  })()`));
+  const classGap = result.find(gap => gap.start === 630 && gap.end === 720);
+
+  assert.ok(classGap);
+  assert.equal(classGap.minutes, 90);
+  assert.equal(classGap.classGap, true);
+});
+
+test('upcoming spare-time detection starts from the current time and ignores committed periods', () => {
+  const app = createAppHarness();
+  const result = JSON.parse(app.run(`(() => {
+    data.fixed = [{ id: 'class-now', name: '授業', day: today.getDay(), start: '09:00', end: '10:30', type: 'class' }];
+    data.extras = [];
+    data.sessions = [];
+    const now = new Date(today);
+    now.setHours(8, 30, 0, 0);
+    return JSON.stringify(getUpcomingStudyGaps(now, 1)[0]);
+  })()`));
+
+  assert.equal(result.start, 510);
+  assert.equal(result.end, 540);
+  assert.equal(result.minutes, 30);
+});
+
+test('spare-time recommendations adapt to location, fatigue, and the available duration', () => {
+  const app = createAppHarness();
+  const result = JSON.parse(app.run(`(() => {
+    const due = dateKey(addDays(today, 5));
+    data.tasks = [
+      { id: 'reading-task', planId: 'reading-plan', name: '教科書', due, hours: 1, remaining: 1, done: false },
+      { id: 'writing-task', planId: 'writing-plan', name: 'レポート', due, hours: 1, remaining: 1, done: false }
+    ];
+    data.plans = [
+      { id: 'reading-plan', kind: 'reading', due, credits: 1 },
+      { id: 'writing-plan', kind: 'report', due, credits: 1 }
+    ];
+    data.sessions = [];
+    const gap = { minutes: 40 };
+    const libraryWhenTired = getSmartStudySuggestions(gap, 'library', 1);
+    const homeWhenEnergetic = getSmartStudySuggestions(gap, 'home', 5);
+    return JSON.stringify({
+      tiredTop: libraryWhenTired[0].task.id,
+      energeticTop: homeWhenEnergetic[0].task.id,
+      suggestionCount: libraryWhenTired.length,
+      suggestedMinutes: libraryWhenTired[0].minutes,
+      tooShort: getSmartStudySuggestions({ minutes: 10 }, 'library', 3).length
+    });
+  })()`));
+
+  assert.equal(result.tiredTop, 'reading-task');
+  assert.equal(result.energeticTop, 'writing-task');
+  assert.equal(result.suggestionCount, 2);
+  assert.equal(result.suggestedMinutes, 25);
+  assert.equal(result.tooShort, 0);
+});
+
+test('adding a spare-time suggestion persists its session and local context', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage);
+  const result = JSON.parse(app.run(`(() => {
+    const due = dateKey(addDays(today, 3));
+    data.tasks = [{ id: 'short-task', name: '短い復習', due, hours: 1, remaining: 1, done: false }];
+    data.sessions = [];
+    studyLocation.value = 'cafe';
+    studyFatigue.value = '2';
+    saveStudyContext();
+    const added = addStudySuggestionSession(data.tasks[0], {
+      day: dateKey(addDays(today, 1)),
+      start: 630,
+      end: 670,
+      minutes: 40
+    }, 25);
+    const session = data.sessions[0];
+    return JSON.stringify({ added, session, context: data.context });
+  })()`));
+  const saved = JSON.parse(storage.get('smart-calendar-v1'));
+
+  assert.equal(result.added, true);
+  assert.equal(result.session.start, '10:30');
+  assert.equal(result.session.end, '10:55');
+  assert.equal(result.session.day, app.run('dateKey(addDays(today, 1))'));
+  assert.deepEqual(result.context, { location: 'cafe', fatigue: 2 });
+  assert.deepEqual(saved.context, { location: 'cafe', fatigue: 2 });
+  assert.equal(saved.sessions.at(-1).taskId, 'short-task');
+});
+
 test('planning duration and actual session deviation persist for the selected week', () => {
   const storage = new Map();
   const app = createAppHarness(storage);
@@ -605,4 +706,5 @@ test('GitHub Pages deploy waits for the passing test job', () => {
   assert.doesNotMatch(deployJob[1], /\balways\(\)/);
   assert.match(deployJob[1], /cp weekly-review\.js dist\/weekly-review\.js/);
   assert.match(deployJob[1], /cp study-planning\.js dist\/study-planning\.js/);
+  assert.match(deployJob[1], /cp spare-time\.js dist\/spare-time\.js/);
 });

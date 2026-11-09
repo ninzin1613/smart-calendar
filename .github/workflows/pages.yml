@@ -40,6 +40,7 @@ jobs:
           cp index.html dist/index.html
           cp weekly-review.js dist/weekly-review.js
           cp study-planning.js dist/study-planning.js
+          cp spare-time.js dist/spare-time.js
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
