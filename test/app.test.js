@@ -791,7 +791,9 @@ test('AI character is rendered as inline owl artwork with a mood-specific expres
   assert.match(result.markup, /<svg class="owl-mascot" data-mood="encouraging"/);
   assert.match(result.markup, /class="owl-glasses"/);
   assert.match(result.markup, /class="owl-clock"/);
-  assert.match(result.markup, /class="owl-quill"/);
+  assert.doesNotMatch(result.markup, /owl-quill/);
+  assert.match(result.markup, /cx="42" cy="55" r="16"/);
+  assert.match(result.markup, /cx="42" cy="55" rx="10\.5" ry="12\.5"/);
   assert.equal(result.label, 'TASKROU、応援の表情');
   assert.match(dashboardEnhancementsScript, /TASKROU · AI STUDY COMPANION/);
   assert.match(dashboardEnhancementsScript, /owl-mascot\[data-mood="concerned"\]/);

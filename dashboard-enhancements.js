@@ -53,7 +53,6 @@ enhancementStyle.textContent = `
 .owl-clock { fill: #fff2ce; stroke-width: 1.7; }
 .owl-clock-hand { fill: none; stroke: #62472e; stroke-width: 1.4; stroke-linecap: round; }
 .owl-brow, .owl-mouth { fill: none; stroke: #62472e; stroke-width: 1.8; stroke-linecap: round; }
-.owl-quill { fill: #77968c; stroke: #59432c; stroke-width: 1.4; stroke-linejoin: round; }
 .owl-sparkle { fill: #d49843; stroke: #a97936; stroke-width: .8; }
 .owl-sweat { fill: #88b9c3; stroke: #547f89; stroke-width: 1; }
 .owl-mascot[data-mood="concerned"] .owl-body { fill: #e9c678; }
@@ -116,7 +115,7 @@ let characterCelebrationUntil = 0;
 function getOwlMarkup(mood) {
   const eyes = mood === 'resting'
     ? '<path class="owl-eye" d="M25 57q11 9 22 0m16 0q11 9 22 0"/>'
-    : '<ellipse class="owl-eye" cx="42" cy="55" rx="11" ry="13"/><ellipse class="owl-eye" cx="78" cy="55" rx="11" ry="13"/><circle class="owl-pupil" cx="43" cy="56" r="6.3"/><circle class="owl-pupil" cx="77" cy="56" r="6.3"/><circle class="owl-eye-glint" cx="45" cy="53" r="2"/><circle class="owl-eye-glint" cx="79" cy="53" r="2"/>';
+    : '<ellipse class="owl-eye" cx="42" cy="55" rx="10.5" ry="12.5"/><ellipse class="owl-eye" cx="78" cy="55" rx="10.5" ry="12.5"/><circle class="owl-pupil" cx="43" cy="56" r="6"/><circle class="owl-pupil" cx="77" cy="56" r="6"/><circle class="owl-eye-glint" cx="45" cy="53" r="2"/><circle class="owl-eye-glint" cx="79" cy="53" r="2"/>';
   const brows = mood === 'concerned'
     ? '<path class="owl-brow" d="m30 38 15 5m45-5-15 5"/>'
     : mood === 'encouraging' || mood === 'celebratory'
@@ -133,14 +132,13 @@ function getOwlMarkup(mood) {
           ? '<path class="owl-sparkle" d="m16 41 2 4 4 1-4 2-2 4-1-4-4-2 4-1z"/><path class="owl-sparkle" d="m103 59 2 3 3 1-3 2-2 3-1-3-3-2 3-1z"/>'
         : '';
   return `<svg class="owl-mascot" data-mood="${mood}" viewBox="0 0 120 130" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <path class="owl-quill" d="M62 27Q69 7 96 8q-7 18-31 27l-8 7-3-4z"/><path d="m61 34 27-22m-15 13-1-10m-7 17 10-2m-5-10 9 2" fill="none" stroke="#70543a" stroke-width="1.4"/>
     <path class="owl-body" d="M28 43Q17 35 17 20q14 3 25 16 18-10 36 0 11-13 25-16-1 15-12 24 15 12 14 37-1 27-25 36-20 9-40 0-24-9-25-36-1-25 13-38z"/>
     <path class="owl-face" d="M21 53q7-21 25-21 8 0 14 6 7-6 15-6 19 0 25 22-5 21-20 31-10 7-20 7-11 0-21-7Q25 75 21 53z"/>
     <path class="owl-wing" d="M23 58Q9 64 13 83q2 15 17 21 9 2 14-13z"/><path class="owl-wing" d="M97 58q14 6 10 25-2 15-17 21-9 2-14-13z"/>
     <path class="owl-feather" d="m23 77 17 18m-19-9 12 13m64-22L80 95m19-9-12 13"/>
     <path class="owl-feather" d="M42 83q7 12 18 13l-6 10q-11-5-16-15zm18 13q12-1 19-13l6 8q-7 13-19 16z"/>
     ${brows}${eyes}
-    <circle class="owl-glasses" cx="42" cy="55" r="17"/><circle class="owl-glasses" cx="78" cy="55" r="17"/><path d="M59 53q1-3 2 0m-2 1q-2-3-1-4" fill="none" stroke="#705a3e" stroke-width="2.5" stroke-linecap="round"/><path class="owl-glasses-shine" d="M30 46q4-5 9-5m31 5q4-5 9-5"/>
+    <circle class="owl-glasses" cx="42" cy="55" r="16"/><circle class="owl-glasses" cx="78" cy="55" r="16"/><path d="M59 53q1-3 2 0m-2 1q-2-3-1-4" fill="none" stroke="#705a3e" stroke-width="2.5" stroke-linecap="round"/><path class="owl-glasses-shine" d="M30 46q4-5 9-5m31 5q4-5 9-5"/>
     <path class="owl-beak" d="m55 68 5-6 5 6-5 9z"/>${mouth}
     <circle class="owl-clock" cx="60" cy="99" r="11"/><circle cx="60" cy="99" r="8" fill="none" stroke="#b48b4e" stroke-width=".8"/><path class="owl-clock-hand" d="M60 92v7l5 3"/><circle cx="60" cy="99" r="1.4" fill="#62472e"/>
     <path class="owl-feet" d="m46 115-2 8-7 2m8-4 5 5m24-11 2 8 7 2m-9-4-5 5"/>
