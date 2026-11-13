@@ -1033,6 +1033,32 @@ test('workspace task navigation opens the complete task list without opening the
   assert.equal(app.document.body.classList.added.includes('task-overview-active'), false);
 });
 
+test('workspace fixed schedule navigation opens the recurring schedule list without opening the add form', () => {
+  const app = createAppHarness();
+  app.run(`data.fixed = [
+    { id: 'later', name: 'ゼミ', day: 3, start: '13:00', end: '14:00', type: 'class' },
+    { id: 'monday-late', name: '統計学', day: 1, start: '10:00', end: '11:00', type: 'class' },
+    { id: 'monday-early', name: 'ミクロ経済学', day: 1, start: '09:00', end: '10:00', type: 'class' }
+  ]`);
+
+  app.document.getElementById('fixedNav').dispatch('click', {});
+
+  const list = app.document.getElementById('fixedOverviewList').innerHTML;
+  assert.equal(app.document.getElementById('fixedOverview').hidden, false);
+  assert.match(app.document.getElementById('fixedOverviewSummary').textContent, /毎週の固定予定 3件/);
+  assert.ok(list.indexOf('ミクロ経済学') < list.indexOf('統計学'));
+  assert.ok(list.indexOf('統計学') < list.indexOf('ゼミ'));
+  assert.match(list, /月曜日/);
+  assert.match(list, /授業/);
+  assert.equal(app.document.getElementById('modalBackdrop').classList.added.includes('open'), false);
+  assert.ok(app.document.getElementById('fixedNav').classList.added.includes('active'));
+
+  app.document.getElementById('tasksNav').dispatch('click', {});
+  assert.equal(app.document.getElementById('fixedOverview').hidden, true);
+  assert.ok(app.document.body.classList.added.includes('task-overview-active'));
+  assert.equal(app.document.getElementById('fixedNav').classList.added.includes('active'), false);
+});
+
 test('opening a task in the list shows its saved plan details and lets the user collapse them', () => {
   const app = createAppHarness();
   const result = JSON.parse(app.run(`(() => {

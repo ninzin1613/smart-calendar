@@ -37,6 +37,16 @@ document.querySelector('.main').insertAdjacentHTML('beforeend', `
     </div>
     <div class="task-overview-list" id="taskOverviewList"></div>
   </section>
+  <section class="fixed-overview" id="fixedOverview" aria-labelledby="fixedOverviewTitle" hidden>
+    <div class="task-overview-heading">
+      <div>
+        <div class="eyebrow">WEEKLY COMMITMENTS</div>
+        <h1 id="fixedOverviewTitle">固定予定一覧</h1>
+        <div class="task-overview-summary" id="fixedOverviewSummary"></div>
+      </div>
+    </div>
+    <div class="fixed-overview-list" id="fixedOverviewList"></div>
+  </section>
 `);
 
 const enhancementStyle = document.createElement('style');
@@ -141,13 +151,23 @@ enhancementStyle.textContent = `
 .task-overview-row.is-done .task-title { text-decoration: line-through; }
 body.task-overview-active .main > :not(.topbar):not(#taskOverview) { display: none; }
 body.task-overview-active #taskOverview { display: block; }
+body.fixed-overview-active .main > :not(.topbar):not(#fixedOverview) { display: none; }
+body.fixed-overview-active #fixedOverview { display: block; }
+.fixed-overview { min-height: 60vh; padding: 18px 0; }
+.fixed-overview[hidden] { display: none; }
+.fixed-overview-list { display: grid; gap: 9px; max-width: 860px; }
+.fixed-overview-item { display: flex; align-items: center; gap: 13px; min-height: 64px; padding: 11px 14px; border: 1px solid #e4ebf4; border-radius: 8px; background: var(--white); }
+.fixed-overview-day { flex: 0 0 76px; color: var(--green-dark); font-size: 11px; font-weight: 700; }
+.fixed-overview-info { display: grid; gap: 4px; min-width: 0; }
+.fixed-overview-name { overflow-wrap: anywhere; font-size: 12px; font-weight: 700; }
+.fixed-overview-meta { color: #828b81; font-size: 10px; }
 @media (prefers-reduced-motion: reduce) {
   .calendar-grid .event.ai-new, .owl-mascot, .owl-eyes, .owl-wing, .owl-sparkle,
   .owl-mascot[data-timer-active="true"] .owl-clock, .owl-mascot[data-timer-active="true"] .owl-clock-hand,
   .character-bubble.is-updating { animation: none; }
   .character-avatar { transition: none; }
 }
-@media (max-width: 680px) { .character-station { align-items: flex-start; flex-wrap: wrap; } .character-avatar { flex-basis: 90px; width: 90px; height: 100px; } .owl-mascot { width: 84px; height: 96px; } .character-message { flex-basis: calc(100% - 106px); } .capacity-panic { margin-left: 104px; } .task-fab { right: 14px; bottom: 14px; min-height: 44px; padding: 0 14px; } }
+@media (max-width: 680px) { .character-station { align-items: flex-start; flex-wrap: wrap; } .character-avatar { flex-basis: 90px; width: 90px; height: 100px; } .owl-mascot { width: 84px; height: 96px; } .character-message { flex-basis: calc(100% - 106px); } .capacity-panic { margin-left: 104px; } .task-fab { right: 14px; bottom: 14px; min-height: 44px; padding: 0 14px; } .fixed-overview-item { align-items: flex-start; flex-direction: column; gap: 4px; } .fixed-overview-day { flex-basis: auto; } }
 `;
 document.head.appendChild(enhancementStyle);
 
@@ -361,6 +381,30 @@ function renderTaskOverview() {
   }));
 }
 
+function renderFixedScheduleOverview() {
+  const list = document.getElementById('fixedOverviewList');
+  const dayNames = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'];
+  const typeNames = { class: '授業', work: 'アルバイト', personal: '個人予定' };
+  const schedules = [...data.fixed].sort((left, right) =>
+    Number(left.day) - Number(right.day)
+      || String(left.start).localeCompare(String(right.start))
+      || String(left.name).localeCompare(String(right.name))
+  );
+  document.getElementById('fixedOverviewSummary').textContent = `毎週の固定予定 ${schedules.length}件`;
+
+  if (!schedules.length) {
+    list.innerHTML = '<div class="empty-state">固定予定はまだありません。</div>';
+    return;
+  }
+
+  list.innerHTML = schedules.map(item => {
+    const day = Number(item.day);
+    const dayName = Number.isInteger(day) && dayNames[day] ? dayNames[day] : '曜日未設定';
+    const typeName = typeNames[item.type] || '固定予定';
+    return `<article class="fixed-overview-item"><div class="fixed-overview-day">${dayName}</div><div class="fixed-overview-info"><div class="fixed-overview-name">${escapeHTML(item.name)}</div><div class="fixed-overview-meta">${escapeHTML(item.start)}〜${escapeHTML(item.end)} · ${typeName}</div></div></article>`;
+  }).join('');
+}
+
 let activeTaskDetailId = null;
 
 function toggleTaskDetail(taskId) {
@@ -371,22 +415,40 @@ function toggleTaskDetail(taskId) {
 const calendarNav = document.querySelector('.nav-item.active');
 
 function showTaskOverview() {
+  document.body.classList.remove('fixed-overview-active');
+  document.getElementById('fixedOverview').hidden = true;
   document.body.classList.add('task-overview-active');
   document.getElementById('taskOverview').hidden = false;
   calendarNav.classList.remove('active');
+  document.getElementById('fixedNav').classList.remove('active');
   document.getElementById('tasksNav').classList.add('active');
   renderTaskOverview();
 }
 
-function showCalendarOverview() {
+function showFixedScheduleOverview() {
   document.body.classList.remove('task-overview-active');
   document.getElementById('taskOverview').hidden = true;
+  document.body.classList.add('fixed-overview-active');
+  document.getElementById('fixedOverview').hidden = false;
+  calendarNav.classList.remove('active');
   document.getElementById('tasksNav').classList.remove('active');
+  document.getElementById('fixedNav').classList.add('active');
+  renderFixedScheduleOverview();
+}
+
+function showCalendarOverview() {
+  document.body.classList.remove('task-overview-active');
+  document.body.classList.remove('fixed-overview-active');
+  document.getElementById('taskOverview').hidden = true;
+  document.getElementById('fixedOverview').hidden = true;
+  document.getElementById('tasksNav').classList.remove('active');
+  document.getElementById('fixedNav').classList.remove('active');
   calendarNav.classList.add('active');
 }
 
 document.getElementById('tasksNav').addEventListener('click', showTaskOverview);
 document.getElementById('allTasks').addEventListener('click', showTaskOverview);
+document.getElementById('fixedNav').addEventListener('click', showFixedScheduleOverview);
 calendarNav.addEventListener('click', showCalendarOverview);
 
 function getTodayCapacity() {
