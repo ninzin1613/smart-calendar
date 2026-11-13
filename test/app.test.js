@@ -279,6 +279,16 @@ test('calendar time axis stays aligned to its reserved first column', () => {
   assert.match(labels.at(-1), />24:00<\/div>/);
 });
 
+test('mobile layout uses full-width content and touch-friendly navigation', () => {
+  const styles = Array.from(html.matchAll(/<style>([\s\S]*?)<\/style>/g), match => match[1]).join('\n');
+
+  assert.match(styles, /@media \(max-width: 600px\)[\s\S]*?\.app\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column/);
+  assert.match(styles, /@media \(max-width: 600px\)[\s\S]*?\.sidebar\s*\{[^}]*flex-direction:\s*row/);
+  assert.match(styles, /@media \(max-width: 600px\)[\s\S]*?\.sidebar \.nav-item span:not\(\.nav-icon\)\s*\{[^}]*display:\s*block/);
+  assert.match(styles, /@media \(max-width: 600px\)[\s\S]*?\.calendar-scroll\s*\{[^}]*-webkit-overflow-scrolling:\s*touch/);
+  assert.match(styles, /@media \(max-width: 360px\)[\s\S]*?\.form-grid\s*\{[^}]*grid-template-columns:\s*1fr/);
+});
+
 test('one-off event submitted in the form persists and appears after reload', () => {
   const storage = new Map();
   const app = createAppHarness(storage);

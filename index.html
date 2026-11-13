@@ -83,6 +83,37 @@ h1 { color: var(--ink); font-weight: 800; }
 .calendar-grid::before { content: ""; grid-column: 1; grid-row: 2; height: 1080px; border-right: 1px solid var(--line); }
 .time-label { left: 0; right: auto; width: 48px; padding-right: 7px; text-align: right; transform: translateY(calc(-50% + 54px)); }
 .day-column { height: 1080px; }
+@media (max-width: 600px) {
+  .app { display: flex; flex-direction: column; }
+  .sidebar { flex: 0 0 auto; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; overflow-x: auto; }
+  .brand { flex: 0 0 auto; gap: 7px; padding: 0; }
+  .brand-mark { width: 28px; height: 28px; font-size: 15px; }
+  .brand-name { display: block; font-size: 15px; white-space: nowrap; }
+  .sidebar > .side-section:nth-child(2) { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; width: auto; }
+  .sidebar .section-label { display: none; }
+  .sidebar .nav-item { display: flex; flex: 0 0 auto; flex-direction: column; justify-content: center; gap: 2px; min-width: 48px; padding: 5px 4px; text-align: center; }
+  .sidebar .nav-item span:not(.nav-icon) { display: block; font-size: 9px; white-space: nowrap; }
+  .sidebar .nav-icon { width: auto; font-size: 14px; line-height: 1; }
+  .sidebar > .side-section:not(:nth-child(2)), .sidebar-foot { display: none; }
+  .main { width: 100%; padding: 12px 10px 24px; }
+  .calendar-scroll { -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+  .metric { padding: 9px 7px; gap: 7px; }
+  .metric-symbol { width: 27px; height: 27px; font-size: 13px; }
+  .metric-value { font-size: 18px; }
+  .metric-label { font-size: 9px; }
+  .modal-backdrop { padding: 8px; }
+  .modal { max-height: calc(100vh - 16px); padding: 18px 14px; }
+  .task-fab { right: calc(12px + env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); }
+}
+@media (max-width: 360px) {
+  .brand-name { display: none; }
+  .sidebar { gap: 4px; padding-right: 6px; padding-left: 6px; }
+  .sidebar .nav-item { min-width: 44px; }
+  .main { padding-right: 8px; padding-left: 8px; }
+  .metrics { gap: 4px; }
+  .metric { flex-direction: column; align-items: flex-start; }
+  .form-grid { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
