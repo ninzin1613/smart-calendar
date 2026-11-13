@@ -23,7 +23,7 @@ document.querySelector('.calendar-shell').insertAdjacentHTML('beforebegin', `
 `);
 
 document.body.insertAdjacentHTML('beforeend', `
-  <button class="task-fab" type="button" id="taskFab" aria-label="課題・テストを追加">＋ <span>課題・テスト追加</span></button>
+  <button class="task-fab" type="button" id="taskFab" aria-label="予定を追加">＋ <span>予定を追加</span></button>
 `);
 
 document.querySelector('.main').insertAdjacentHTML('beforeend', `
@@ -588,7 +588,8 @@ document.getElementById('takeRestDay').addEventListener('click', () => {
   renderSpareTimeSuggestions();
 });
 document.getElementById('taskFab').addEventListener('click', () => {
-  openModal('task');
+  openModal();
+  syncEventScheduleFields();
   syncStudyFields();
 });
 

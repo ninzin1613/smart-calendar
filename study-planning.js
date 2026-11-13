@@ -345,7 +345,7 @@ studyType.addEventListener('change', () => {
   syncStudyFields();
 });
 for (const element of [studyWorkload, studyDifficulty]) element.addEventListener('input', updateStudyEstimate);
-for (const id of ['addBtn', 'tasksNav', 'allTasks']) document.getElementById(id).addEventListener('click', syncStudyFields);
+for (const id of ['tasksNav', 'allTasks']) document.getElementById(id).addEventListener('click', syncStudyFields);
 
 document.getElementById('eventForm').addEventListener('submit', event => {
   if (eventTypeSelect.value !== 'task') return;

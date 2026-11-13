@@ -1014,14 +1014,24 @@ test('calendar keeps its existing grid layout while marking AI tasks, progress, 
   assert.match(result.completedCalendar, /1\/3完了（25%）/);
 });
 
-test('floating task button opens the existing task modal without replacing calendar controls', () => {
+test('floating schedule button opens general event entry and keeps task selection available', () => {
   const app = createAppHarness();
   app.document.getElementById('taskFab').dispatch('click', {});
 
   assert.match(dashboardEnhancementsScript, /position: fixed; right: 24px; bottom: 24px; z-index: 9/);
+  assert.match(dashboardEnhancementsScript, /aria-label="予定を追加">＋ <span>予定を追加<\/span>/);
   assert.match(html, /\.modal-backdrop\{[^}]*z-index:10/);
+  assert.doesNotMatch(html, /id="addBtn"/);
+  assert.doesNotMatch(html, /id="rerouteBtn"/);
+  assert.doesNotMatch(html, /未完了の予定を再配置/);
   assert.ok(app.document.getElementById('modalBackdrop').classList.added.includes('open'));
-  assert.equal(app.document.getElementById('eventType').value, 'task');
+  assert.equal(app.document.getElementById('eventType').value, 'class');
+  app.document.getElementById('eventType').value = 'task';
+  app.document.getElementById('eventType').dispatch('change', {
+    target: app.document.getElementById('eventType'),
+    currentTarget: app.document.getElementById('eventType')
+  });
+  assert.equal(app.document.getElementById('dueField').hidden, false);
   assert.match(html, /id="calendarGrid"/);
 });
 
