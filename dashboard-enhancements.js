@@ -54,9 +54,11 @@ if (typeof window !== 'undefined') {
   const placeSummaryMetrics = () => {
     const target = window.innerWidth > 850
       ? document.querySelector('.mini-calendar')
-      : document.querySelector('.intro');
-    if (summaryMetrics.previousElementSibling !== target) {
+      : document.querySelector('.main');
+    if (window.innerWidth > 850 && summaryMetrics.previousElementSibling !== target) {
       target.insertAdjacentElement('afterend', summaryMetrics);
+    } else if (window.innerWidth <= 850 && summaryMetrics !== target.firstElementChild) {
+      target.insertAdjacentElement('afterbegin', summaryMetrics);
     }
   };
   placeSummaryMetrics();

@@ -14,7 +14,7 @@ const quickInputScript = fs.readFileSync(path.join(__dirname, '..', 'quick-input
 assert.match(html, /<script src="\.\/weekly-review\.js"><\/script>/, 'index.html must load the weekly review script');
 assert.match(html, /<script src="\.\/study-planning\.js"><\/script>/, 'index.html must load the study planning script');
 assert.match(html, /<script src="\.\/spare-time\.js"><\/script>/, 'index.html must load the spare-time suggestion script');
-assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261113-summary-icon-left"><\/script>/, 'index.html must load the current dashboard enhancements');
+assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261113-summary-heading-removed"><\/script>/, 'index.html must load the current dashboard enhancements');
 assert.match(html, /<script src="\.\/quick-input\.js"><\/script>/, 'index.html must load quick input support');
 assert.ok(appScripts.length, 'index.html must contain the application script');
 
@@ -48,6 +48,11 @@ function createAppHarness(values = new Map(), browserFeatures = {}) {
     insertAdjacentHTML() {},
     insertAdjacentElement(position, element) {
       if (position === 'afterend') element.previousElementSibling = this;
+      if (position === 'afterbegin') {
+        element.previousElementSibling = null;
+        element.nextElementSibling = this.firstElementChild || null;
+        this.firstElementChild = element;
+      }
       return element;
     },
     appendChild() {},
@@ -268,16 +273,14 @@ test('calendar weeks and mini calendar run from Sunday through Saturday', () => 
 
 test('week date navigation sits at the right side of the calendar toolbar', () => {
   const styles = Array.from(html.matchAll(/<style>([\s\S]*?)<\/style>/g), match => match[1]).join('\n');
-  const introStart = html.indexOf('<section class="intro">');
-  const metricsStart = html.indexOf('<section class="metrics"', introStart);
   const toolbarStart = html.indexOf('<div class="calendar-toolbar">');
   const viewToggle = html.indexOf('<div class="view-toggle">', toolbarStart);
   const spacer = html.indexOf('<div class="toolbar-spacer"></div>', viewToggle);
   const weekControls = html.indexOf('<div class="week-controls">', spacer);
   const calendarScroll = html.indexOf('<div class="calendar-scroll">', weekControls);
 
-  assert.ok(introStart >= 0 && metricsStart > introStart);
-  assert.equal(html.slice(introStart, metricsStart).includes('week-controls'), false);
+  assert.match(html, /<main class="main"><section class="metrics"/);
+  assert.doesNotMatch(html, /class="intro"/);
   assert.ok(toolbarStart >= 0 && viewToggle > toolbarStart && spacer > viewToggle);
   assert.ok(weekControls > spacer && calendarScroll > weekControls);
   assert.match(styles, /\.calendar-toolbar \.week-controls\s*\{[^}]*margin-left:\s*auto/);
@@ -312,6 +315,7 @@ test('mobile layout uses full-width content and touch-friendly navigation', () =
 });
 
 test('weekly summary sits below the sidebar calendar on desktop and returns to content on smaller screens', () => {
+  assert.doesNotMatch(html, /YOUR WEEK, IN BALANCE|今日の予定と、これからの計画。/);
   const resizeHandlers = [];
   const browser = { window: {
     innerWidth: 1024,
@@ -326,7 +330,7 @@ test('weekly summary sits below the sidebar calendar on desktop and returns to c
 
   browser.window.innerWidth = 768;
   resizeHandlers[0]();
-  assert.equal(metrics.previousElementSibling, app.document.querySelector('.intro'));
+  assert.equal(app.document.querySelector('.main').firstElementChild, metrics);
 
   browser.window.innerWidth = 1280;
   resizeHandlers[0]();
