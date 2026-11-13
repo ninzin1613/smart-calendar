@@ -14,7 +14,7 @@ const quickInputScript = fs.readFileSync(path.join(__dirname, '..', 'quick-input
 assert.match(html, /<script src="\.\/weekly-review\.js"><\/script>/, 'index.html must load the weekly review script');
 assert.match(html, /<script src="\.\/study-planning\.js"><\/script>/, 'index.html must load the study planning script');
 assert.match(html, /<script src="\.\/spare-time\.js"><\/script>/, 'index.html must load the spare-time suggestion script');
-assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261113-summary-sidebar"><\/script>/, 'index.html must load the current dashboard enhancements');
+assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261113-summary-icon-left"><\/script>/, 'index.html must load the current dashboard enhancements');
 assert.match(html, /<script src="\.\/quick-input\.js"><\/script>/, 'index.html must load quick input support');
 assert.ok(appScripts.length, 'index.html must contain the application script');
 
@@ -264,6 +264,24 @@ test('calendar weeks and mini calendar run from Sunday through Saturday', () => 
   assert.equal(result.yearBoundary, '2026-12-27');
   assert.deepEqual(result.days, ['2026-10-25', '2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31']);
   assert.deepEqual(result.miniWeekdays, ['日', '月', '火', '水', '木', '金', '土']);
+});
+
+test('week date navigation sits at the right side of the calendar toolbar', () => {
+  const styles = Array.from(html.matchAll(/<style>([\s\S]*?)<\/style>/g), match => match[1]).join('\n');
+  const introStart = html.indexOf('<section class="intro">');
+  const metricsStart = html.indexOf('<section class="metrics"', introStart);
+  const toolbarStart = html.indexOf('<div class="calendar-toolbar">');
+  const viewToggle = html.indexOf('<div class="view-toggle">', toolbarStart);
+  const spacer = html.indexOf('<div class="toolbar-spacer"></div>', viewToggle);
+  const weekControls = html.indexOf('<div class="week-controls">', spacer);
+  const calendarScroll = html.indexOf('<div class="calendar-scroll">', weekControls);
+
+  assert.ok(introStart >= 0 && metricsStart > introStart);
+  assert.equal(html.slice(introStart, metricsStart).includes('week-controls'), false);
+  assert.ok(toolbarStart >= 0 && viewToggle > toolbarStart && spacer > viewToggle);
+  assert.ok(weekControls > spacer && calendarScroll > weekControls);
+  assert.match(styles, /\.calendar-toolbar \.week-controls\s*\{[^}]*margin-left:\s*auto/);
+  assert.match(styles, /\.calendar-toolbar \.week-label\s*\{\s*min-width:\s*108px/);
 });
 
 test('calendar time axis stays aligned to its reserved first column', () => {
