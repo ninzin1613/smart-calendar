@@ -14,7 +14,7 @@ const quickInputScript = fs.readFileSync(path.join(__dirname, '..', 'quick-input
 assert.match(html, /<script src="\.\/weekly-review\.js"><\/script>/, 'index.html must load the weekly review script');
 assert.match(html, /<script src="\.\/study-planning\.js"><\/script>/, 'index.html must load the study planning script');
 assert.match(html, /<script src="\.\/spare-time\.js"><\/script>/, 'index.html must load the spare-time suggestion script');
-assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261113-fixed-schedules"><\/script>/, 'index.html must load the current dashboard enhancements');
+assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261113-summary-sidebar"><\/script>/, 'index.html must load the current dashboard enhancements');
 assert.match(html, /<script src="\.\/quick-input\.js"><\/script>/, 'index.html must load quick input support');
 assert.ok(appScripts.length, 'index.html must contain the application script');
 
@@ -46,6 +46,10 @@ function createAppHarness(values = new Map(), browserFeatures = {}) {
       }
     },
     insertAdjacentHTML() {},
+    insertAdjacentElement(position, element) {
+      if (position === 'afterend') element.previousElementSibling = this;
+      return element;
+    },
     appendChild() {},
     parentElement: { hidden: false, insertAdjacentHTML() {} },
     querySelectorAll() { return []; },
@@ -287,6 +291,28 @@ test('mobile layout uses full-width content and touch-friendly navigation', () =
   assert.match(styles, /@media \(max-width: 600px\)[\s\S]*?\.sidebar \.nav-item span:not\(\.nav-icon\)\s*\{[^}]*display:\s*block/);
   assert.match(styles, /@media \(max-width: 600px\)[\s\S]*?\.calendar-scroll\s*\{[^}]*-webkit-overflow-scrolling:\s*touch/);
   assert.match(styles, /@media \(max-width: 360px\)[\s\S]*?\.form-grid\s*\{[^}]*grid-template-columns:\s*1fr/);
+});
+
+test('weekly summary sits below the sidebar calendar on desktop and returns to content on smaller screens', () => {
+  const resizeHandlers = [];
+  const browser = { window: {
+    innerWidth: 1024,
+    addEventListener(name, handler) {
+      if (name === 'resize') resizeHandlers.push(handler);
+    }
+  } };
+  const app = createAppHarness(new Map(), browser);
+  const metrics = app.document.querySelector('.metrics');
+
+  assert.equal(metrics.previousElementSibling, app.document.querySelector('.mini-calendar'));
+
+  browser.window.innerWidth = 768;
+  resizeHandlers[0]();
+  assert.equal(metrics.previousElementSibling, app.document.querySelector('.intro'));
+
+  browser.window.innerWidth = 1280;
+  resizeHandlers[0]();
+  assert.equal(metrics.previousElementSibling, app.document.querySelector('.mini-calendar'));
 });
 
 test('one-off event submitted in the form persists and appears after reload', () => {

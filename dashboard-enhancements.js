@@ -49,8 +49,25 @@ document.querySelector('.main').insertAdjacentHTML('beforeend', `
   </section>
 `);
 
+const summaryMetrics = document.querySelector('.metrics');
+if (typeof window !== 'undefined') {
+  const placeSummaryMetrics = () => {
+    const target = window.innerWidth > 850
+      ? document.querySelector('.mini-calendar')
+      : document.querySelector('.intro');
+    if (summaryMetrics.previousElementSibling !== target) {
+      target.insertAdjacentElement('afterend', summaryMetrics);
+    }
+  };
+  placeSummaryMetrics();
+  window.addEventListener('resize', placeSummaryMetrics);
+}
+
 const enhancementStyle = document.createElement('style');
 enhancementStyle.textContent = `
+.sidebar .metrics { grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 0; }
+.sidebar .metric { min-height: 58px; padding: 9px 11px; gap: 9px; }
+.sidebar .metric-symbol { flex: 0 0 30px; width: 30px; height: 30px; }
 .character-station { display: flex; align-items: center; gap: 14px; margin: 16px 0; padding: 12px 16px; border: 1px solid #e5dfcd; border-radius: 12px; background: linear-gradient(110deg, #fffdf6 0%, #fffefa 56%, #f0f7f5 100%); box-shadow: var(--shadow); }
 .character-avatar { display: grid; flex: 0 0 132px; width: 132px; height: 144px; place-items: center; border: 1px solid #e8dfc7; border-radius: 22px; background: radial-gradient(circle at 50% 35%, #fff8df 0, #f8edc8 72%, #f0e5c4 100%); }
 .owl-mascot { display: block; width: 122px; height: 140px; overflow: visible; filter: drop-shadow(0 3px 1px rgba(71, 58, 39, .12)); }
