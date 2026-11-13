@@ -13,12 +13,20 @@ document.querySelector('.calendar-shell').insertAdjacentHTML('beforebegin', `
       <div class="character-title" id="characterStationTitle"><span class="character-brand">TASKROU · AI STUDY COMPANION</span><span>今日のひとこと</span></div>
       <div class="character-bubble" id="characterMessage" role="status" aria-live="polite"></div>
       <div class="character-actions">
-        <button class="primary-btn character-start" type="button" id="startTwentyMinuteTask">▶ 今すぐ20分作業する</button>
-        <button class="secondary-btn" type="button" id="takeRestDay">☕ 今日は休む</button>
+        <button class="primary-btn character-start" type="button" id="acceptSuggestion">実行する</button>
+        <button class="secondary-btn" type="button" id="declineSuggestion">やめとく</button>
+        <button class="secondary-btn" type="button" id="chooseOtherTask">他のこと</button>
       </div>
       <div class="character-timer" id="studyTimerReadout" role="timer" aria-live="polite" hidden></div>
     </div>
     <div class="capacity-panic" id="capacityPanic" role="status" hidden></div>
+    <section class="character-chat" aria-label="タスクロウに相談">
+      <div class="character-chat-history" id="characterChatHistory" role="log" aria-live="polite"></div>
+      <form class="character-chat-form" id="characterChatForm">
+        <input class="character-chat-input" id="characterChatInput" type="text" maxlength="240" aria-label="タスクロウへの相談内容" placeholder="例：今日、何から始めればいい？" autocomplete="off">
+        <button class="character-chat-send" type="submit">相談する</button>
+      </form>
+    </section>
   </section>
 `);
 
@@ -73,7 +81,7 @@ enhancementStyle.textContent = `
 .sidebar .metric-label { order: -1; margin-top: 0; }
 .sidebar .metric-value { font-size: 16px; }
 .sidebar .metric-symbol { position: absolute; left: 11px; flex: 0 0 30px; width: 30px; height: 30px; }
-.character-station { display: flex; align-items: center; gap: 14px; margin: 16px 0; padding: 12px 16px; border: 1px solid #e5dfcd; border-radius: 12px; background: linear-gradient(110deg, #fffdf6 0%, #fffefa 56%, #f0f7f5 100%); box-shadow: var(--shadow); }
+.character-station { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 16px 0; padding: 12px 16px; border: 1px solid #e5dfcd; border-radius: 12px; background: linear-gradient(110deg, #fffdf6 0%, #fffefa 56%, #f0f7f5 100%); box-shadow: var(--shadow); }
 .character-avatar { display: grid; flex: 0 0 132px; width: 132px; height: 144px; place-items: center; border: 1px solid #e8dfc7; border-radius: 22px; background: radial-gradient(circle at 50% 35%, #fff8df 0, #f8edc8 72%, #f0e5c4 100%); }
 .owl-mascot { display: block; width: 122px; height: 140px; overflow: visible; filter: drop-shadow(0 3px 1px rgba(71, 58, 39, .12)); }
 .owl-body { fill: #f2cf72; stroke: #59432c; stroke-width: 2.2; stroke-linejoin: round; }
@@ -109,6 +117,8 @@ enhancementStyle.textContent = `
 .character-avatar:hover { transform: translateY(-4px) scale(1.05); box-shadow: 0 8px 18px rgba(89, 67, 44, .12); }
 .character-avatar:active { transform: translateY(-1px) scale(1.02); }
 .owl-mascot[data-mood="encouraging"] .owl-wing { transform-box: fill-box; transform-origin: center top; animation: owl-wing-flap 1.1s ease-in-out infinite; }
+.owl-mascot[data-mood="focused"] .owl-wing { transform-box: fill-box; transform-origin: center top; animation: owl-wing-flap .55s ease-in-out infinite; }
+.owl-mascot[data-mood="focused"] .owl-sparkle { animation: owl-sparkle .5s ease-in-out infinite alternate; }
 .owl-mascot[data-mood="concerned"] { animation: owl-shiver .45s ease-in-out infinite; }
 .owl-mascot[data-mood="celebratory"] .owl-sparkle { animation: owl-sparkle 1s ease-in-out infinite alternate; }
 .owl-mascot[data-timer-active="true"] .owl-clock { animation: owl-clock-glow 1.8s ease-in-out infinite; }
@@ -129,12 +139,24 @@ enhancementStyle.textContent = `
 .character-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 9px; margin-bottom: 5px; color: #718563; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
 .character-brand { color: #9c8050; font-size: 8px; letter-spacing: .11em; }
 .character-message { flex: 1; min-width: 0; }
-.character-bubble { width: fit-content; max-width: 100%; padding: 8px 11px; border-radius: 4px 11px 11px; background: #f2f5ed; font-size: 12px; line-height: 1.5; }
+.character-bubble { position: relative; width: fit-content; max-width: 100%; padding: 8px 11px; border-radius: 4px 11px 11px; background: #f2f5ed; font-size: 12px; line-height: 1.5; }
+.character-bubble::before { position: absolute; top: 10px; left: -6px; border-width: 6px 6px 6px 0; border-style: solid; border-color: transparent #f2f5ed transparent transparent; content: ""; }
 .character-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
 .character-actions button { min-height: 31px; height: 31px; font-size: 10px; }
 .character-actions .primary-btn { background: var(--green-dark); box-shadow: none; }
 .capacity-panic { flex: 0 0 auto; max-width: 230px; padding: 8px 10px; border-radius: 7px; background: #fff1eb; color: #a64e3c; font-size: 10px; font-weight: 700; }
 .capacity-panic[hidden] { display: none; }
+.character-chat { flex: 0 0 100%; min-width: 0; }
+.character-chat-history { display: grid; gap: 6px; max-height: 150px; margin-top: 10px; overflow-y: auto; }
+.character-chat-history:empty { display: none; }
+.character-chat-entry { max-width: min(680px, 100%); padding: 8px 10px; border-radius: 8px; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.character-chat-entry.user { justify-self: end; background: #fff2c8; }
+.character-chat-entry.assistant { justify-self: start; background: #f2f5ed; }
+.character-chat-speaker { display: block; margin-bottom: 2px; color: #718563; font-size: 9px; font-weight: 700; }
+.character-chat-form { display: flex; gap: 7px; margin-top: 10px; }
+.character-chat-input { flex: 1; min-width: 0; height: 38px; padding: 0 10px; border: 1px solid #d8e3ef; border-radius: 8px; background: white; }
+.character-chat-input:focus { outline: 3px solid rgba(139, 207, 120, .2); border-color: var(--green-dark); }
+.character-chat-send { min-width: 78px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--green-dark); color: white; font-size: 10px; font-weight: 700; }
 .task-fab { position: fixed; right: 24px; bottom: 24px; z-index: 9; display: flex; align-items: center; gap: 7px; min-height: 48px; padding: 0 17px; border: 0; border-radius: 25px; background: var(--coral); color: white; box-shadow: 0 5px 16px rgba(80, 52, 40, .25); font-size: 15px; font-weight: 700; }
 .task-fab:hover { background: #e85e52; transform: translateY(-1px); }
 .task-fab span { font-size: 11px; }
@@ -194,6 +216,7 @@ body.fixed-overview-active #fixedOverview { display: block; }
 document.head.appendChild(enhancementStyle);
 
 let characterCelebrationUntil = 0;
+let characterSuggestedTaskName = null;
 
 function getStudyTimerRemaining(timer, now = Date.now()) {
   return Math.max(0, Math.ceil((timer.endsAt - now) / 1000));
@@ -258,18 +281,22 @@ function getOwlMarkup(mood) {
   const eyes = mood === 'resting' || mood === 'celebratory'
     ? '<path class="owl-eye" d="M48 75q20 13 40 0m8 0q20 13 40 0"/>'
     : '<ellipse class="owl-eye" cx="69" cy="73" rx="13" ry="16"/><ellipse class="owl-eye" cx="111" cy="73" rx="13" ry="16"/><circle class="owl-pupil" cx="70" cy="75" r="7"/><circle class="owl-pupil" cx="110" cy="75" r="7"/><circle class="owl-eye-glint" cx="73" cy="69" r="2.8"/><circle class="owl-eye-glint" cx="113" cy="69" r="2.8"/>'
-  const brows = mood === 'concerned'
+  const brows = mood === 'focused'
+    ? '<path class="owl-brow" d="m52 56 18-5m58 5-18-5"/>'
+    : mood === 'concerned'
     ? '<path class="owl-brow" d="m52 51 18 7m58-7-18 7"/>'
     : mood === 'encouraging' || mood === 'celebratory'
         ? '<path class="owl-brow" d="m52 52 18-3m58 3-18-3"/>'
-      : '';
+      : '<path class="owl-brow" d="M56 48q13-9 28 0 7 4 14 0 15-9 28 0"/>';
   const mouth = mood === 'celebratory'
     ? '<path class="owl-mouth" d="M81 105q9 13 18 0"/>'
     : '<path class="owl-mouth" d="m84 102 6 8 6-8"/>'
   const crown = mood === 'encouraging'
     ? '<path class="owl-crown" d="M48 57q21-8 42-5 21-4 42 2l-1 6q-21-5-41 0-20-4-40 3z"/><path class="owl-crown-leaf" d="m62 51 4-8 5 8zm25-1 5-8 4 8zm25 1 4-7 5 8z"/>'
     : '';
-  const extras = mood === 'concerned'
+  const extras = mood === 'focused'
+    ? '<path class="owl-sparkle" d="m153 37 3 6 6 2-6 3-3 6-2-6-6-3 6-2z"/><path class="owl-sparkle" d="m27 67 2 4 4 1-4 2-2 4-1-4-4-2 4-1z"/>'
+    : mood === 'concerned'
     ? '<path class="owl-sweat" d="M151 62q-9 13 0 18 9-5 0-18z"/>'
     : mood === 'encouraging'
         ? '<path class="owl-sparkle" d="m153 37 3 6 6 2-6 3-3 6-2-6-6-3 6-2z"/>'
@@ -292,7 +319,7 @@ function getOwlMarkup(mood) {
     <path class="owl-face" d="M38 68q8-22 29-24 15-1 24 11 11-12 26-11 22 2 28 26-6 27-24 42-14 11-29 13-17-2-30-13Q42 98 38 68z"/>
     <path class="owl-feather" d="M52 51Q36 34 39 16q17 13 31 31m40 0q18-20 34-24-1 19-17 33" />
     <path class="owl-feather-line" d="M46 36q8 9 16 15m59-1q8-8 14-14"/>
-    <path class="owl-brow" d="M56 48q13-9 28 0 7 4 14 0 15-9 28 0"/>
+    ${brows}
     <g class="owl-eyes">${eyes}</g>
     <circle class="owl-glasses" cx="69" cy="73" r="24"/><circle class="owl-glasses" cx="111" cy="73" r="24"/>
     <path d="M92 70q-2-4-4 0m4 0q2-4 4 0" fill="none" stroke="#705a3e" stroke-width="3.2" stroke-linecap="round"/>
@@ -490,10 +517,7 @@ function getTodayCapacity() {
 function renderCharacterStation() {
   const avatar = document.getElementById('characterAvatar');
   const warning = document.getElementById('capacityPanic');
-  const startButton = document.getElementById('startTwentyMinuteTask');
-  const restButton = document.getElementById('takeRestDay');
   const isRestDay = data.restDays.includes(dateKey(today));
-  const timerRunning = Boolean(data.activeTimer && getStudyTimerRemaining(data.activeTimer) > 0);
   const capacity = getTodayCapacity();
   const priority = typeof getPriorityPlans === 'function' ? getPriorityPlans()[0] : null;
   const nextFreeGap = getUpcomingStudyGaps().find(gap => gap.minutes >= data.context.duration);
@@ -502,6 +526,7 @@ function renderCharacterStation() {
     : [];
   const overdue = data.tasks.some(task => !task.done && task.due < dateKey(today));
   let mood = 'standard';
+  characterSuggestedTaskName = null;
 
   let messageText;
   if (capacity.isOverloaded && !isRestDay) {
@@ -519,6 +544,7 @@ function renderCharacterStation() {
   } else if (priority) {
     mood = 'encouraging';
     const suggestedTask = gapSuggestions[0]?.task || priority;
+    characterSuggestedTaskName = suggestedTask.name;
     const time = nextFreeGap
       ? `${fmtDate(new Date(`${nextFreeGap.day}T00:00:00`))} ${formatGapTime(nextFreeGap.start)}〜${formatGapTime(nextFreeGap.end)}`
       : '次の空き時間に';
@@ -528,21 +554,96 @@ function renderCharacterStation() {
   }
 
   setCharacterMessage(messageText);
+  setCharacterMood(mood);
+  warning.hidden = !capacity.isOverloaded || isRestDay;
+  warning.textContent = `⚠️ 今日は無理しないで！ 空き ${capacity.availableMinutes}分 · 期限が近い課題 ${capacity.demandMinutes}分`;
+  updateStudyTimer();
+}
+
+function setCharacterMood(mood) {
+  const avatar = document.getElementById('characterAvatar');
   avatar.innerHTML = getOwlMarkup(mood);
   avatar.setAttribute('aria-label', `TASKROU、${{
     standard: '通常',
     encouraging: '応援',
+    focused: '気合十分',
     concerned: '心配',
     resting: '休息',
     celebratory: 'お祝い'
   }[mood]}の表情`);
-  warning.hidden = !capacity.isOverloaded || isRestDay;
-  warning.textContent = `⚠️ 今日は無理しないで！ 空き ${capacity.availableMinutes}分 · 期限が近い課題 ${capacity.demandMinutes}分`;
-  startButton.disabled = isRestDay || timerRunning;
-  startButton.textContent = isRestDay ? '今日は休息中' : timerRunning ? '作業中' : '▶ 今すぐ20分作業する';
-  restButton.textContent = isRestDay ? '↩ 休息を取り消す' : '☕ 今日は休む';
-  updateStudyTimer();
 }
+
+function respondToSuggestion(choice) {
+  if (choice === 'accept') {
+    setCharacterMood('focused');
+    setCharacterMessage(characterSuggestedTaskName
+      ? `いいね！「${characterSuggestedTaskName}」に取り組もう。気合十分、できるところから始めよう！`
+      : 'いいね！やる気が出たね。取り組みたい課題を選んで始めよう！');
+    return;
+  }
+
+  if (choice === 'decline') {
+    setCharacterMood('resting');
+    setCharacterMessage('わかった！今は無理せずひと休みしよう。課題はそのまま残しておくね。');
+    return;
+  }
+
+  const alternative = getPriorityPlans().find(plan => plan.name !== characterSuggestedTaskName);
+  setCharacterMood('encouraging');
+  if (!alternative) {
+    setCharacterMessage('今は他におすすめできる課題がないみたい。別の課題を登録したら一緒に考えるね。');
+    return;
+  }
+
+  characterSuggestedTaskName = alternative.name;
+  setCharacterMessage(`もちろん！では「${alternative.name}」を進めてみるのはどう？`);
+}
+
+document.getElementById('acceptSuggestion').addEventListener('click', () => respondToSuggestion('accept'));
+document.getElementById('declineSuggestion').addEventListener('click', () => respondToSuggestion('decline'));
+document.getElementById('chooseOtherTask').addEventListener('click', () => respondToSuggestion('other'));
+
+function getCharacterConsultationReply(question) {
+  if (/疲れ|しんど|眠い|休みたい/.test(question)) {
+    return '疲れているなら、まず短く休憩して大丈夫です。無理のないペースで進めましょう。';
+  }
+
+  const plans = getPriorityPlans();
+  const normalizedQuestion = question.toLocaleLowerCase();
+  const plan = plans.find(item => normalizedQuestion.includes(item.name.toLocaleLowerCase())) || plans[0];
+  if (!plan) return '未完了の課題はありません。次の予定を確認して、必要なら新しい課題を登録しましょう。';
+
+  const tasks = data.tasks.filter(task =>
+    plan.legacyTaskId ? task.id === plan.legacyTaskId : task.planId === plan.id
+  );
+  const remaining = tasks.reduce((sum, task) => sum + Number(task.remaining || 0), 0);
+  const due = fmtDate(new Date(`${plan.due}T00:00:00`));
+  const nextGap = getUpcomingStudyGaps(new Date(), 1).find(gap => gap.minutes >= 20);
+  const freeTime = nextGap
+    ? `今日の${formatGapTime(nextGap.start)}〜${formatGapTime(nextGap.end)}`
+    : '次の空き時間';
+  const hasSpecificPlan = normalizedQuestion.includes(plan.name.toLocaleLowerCase());
+  const lead = hasSpecificPlan ? `「${plan.name}」ですね。` : `課題と締切から見ると「${plan.name}」がおすすめです。`;
+
+  return `${lead}締切は${due}、残りは約${remaining.toFixed(remaining % 1 ? 1 : 0)}時間です。${freeTime}に、まず20分だけ最初の作業を進めてみましょう。`;
+}
+
+document.getElementById('characterChatForm').addEventListener('submit', event => {
+  event.preventDefault();
+  const input = document.getElementById('characterChatInput');
+  const question = input.value.trim();
+  if (!question) {
+    input.focus();
+    return;
+  }
+
+  const history = document.getElementById('characterChatHistory');
+  const reply = getCharacterConsultationReply(question);
+  history.innerHTML += `<div class="character-chat-entry user"><span class="character-chat-speaker">あなた</span>${escapeHTML(question)}</div><div class="character-chat-entry assistant"><span class="character-chat-speaker">TASKROU</span>${escapeHTML(reply)}</div>`;
+  history.scrollTop = history.scrollHeight;
+  input.value = '';
+  input.focus();
+});
 
 function startTwentyMinuteTask() {
   if (data.restDays.includes(dateKey(today))) {
@@ -578,20 +679,6 @@ function startTwentyMinuteTask() {
   return true;
 }
 
-document.getElementById('startTwentyMinuteTask').addEventListener('click', startTwentyMinuteTask);
-document.getElementById('takeRestDay').addEventListener('click', () => {
-  const todayKey = dateKey(today);
-  if (data.restDays.includes(todayKey)) {
-    data.restDays = data.restDays.filter(day => day !== todayKey);
-  } else {
-    data.restDays.push(todayKey);
-    data.activeTimer = null;
-    save();
-  }
-  save();
-  renderCharacterStation();
-  renderSpareTimeSuggestions();
-});
 document.getElementById('taskFab').addEventListener('click', () => {
   openModal();
   syncEventScheduleFields();

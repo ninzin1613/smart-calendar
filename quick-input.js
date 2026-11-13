@@ -1,21 +1,12 @@
-document.querySelector('.calendar-shell').insertAdjacentHTML('beforebegin', `
-  <section class="quick-input-panel" aria-labelledby="quickInputTitle">
-    <div class="quick-input-heading">
-      <div>
-        <div class="panel-title" id="quickInputTitle">クイック入力</div>
-        <div class="quick-input-note">課題をテキストで登録するか、画像を端末内に添付できます。</div>
-      </div>
-      <div class="quick-input-actions">
-        <button class="quick-input-button" type="button" id="quickTextInput"><span aria-hidden="true">T</span>テキスト</button>
-        <button class="quick-input-button" type="button" id="quickImageInput"><span aria-hidden="true">▧</span>画像</button>
-      </div>
-    </div>
-    <div class="quick-input-note" id="quickInputStatus" role="status" aria-live="polite"></div>
-    <input id="quickImageFile" type="file" accept="image/*" hidden aria-label="添付する画像を選択">
-  </section>
-`);
-
 document.querySelector('.form-grid').insertAdjacentHTML('beforeend', `
+  <div class="field full quick-image-field" id="quickImageField" hidden>
+    <label>参考画像（任意）</label>
+    <div class="quick-image-actions">
+      <button class="quick-image-add" type="button" id="quickImageInput">画像を添付</button>
+      <span class="quick-image-note" id="quickInputStatus" role="status" aria-live="polite"></span>
+    </div>
+    <input id="quickImageFile" type="file" accept="image/*" hidden aria-label="添付する画像を選択">
+  </div>
   <div class="field full quick-image-pending" id="quickImagePending" hidden>
     <span>添付画像：<strong id="quickImageName"></strong></span>
     <button class="quick-image-remove" id="removeQuickImage" type="button">画像を外す</button>
@@ -24,33 +15,28 @@ document.querySelector('.form-grid').insertAdjacentHTML('beforeend', `
 
 const quickInputStyle = document.createElement('style');
 quickInputStyle.textContent = `
-.quick-input-panel { margin: 0 0 16px; padding: 12px 16px; border: 1px solid #e4ebf4; border-radius: 9px; background: #fffdf8; box-shadow: var(--shadow); }
-.quick-input-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.quick-input-note { margin-top: 4px; color: #828b81; font-size: 10px; }
-#quickInputStatus:empty { display: none; }
-.quick-input-actions { display: flex; gap: 7px; }
-.quick-input-button { display: grid; min-width: 72px; min-height: 54px; place-items: center; gap: 2px; padding: 5px 9px; border: 1px solid #eadca9; border-radius: 8px; background: #fff3c9; color: #695425; font-size: 10px; font-weight: 700; transition: transform .18s ease, box-shadow .18s ease; }
-.quick-input-button span { display: grid; width: 25px; height: 25px; place-items: center; border: 1px solid currentColor; border-radius: 6px; font-size: 15px; }
-.quick-input-button:hover, .quick-input-button:focus-visible { transform: scale(1.05); box-shadow: 0 0 0 5px rgba(242, 200, 75, .2); outline: none; }
+.quick-image-field[hidden], .quick-image-pending[hidden] { display: none; }
+.quick-image-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.quick-image-add { height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--white); font-size: 10px; font-weight: 700; }
+.quick-image-note { color: #828b81; font-size: 9px; }
 .quick-image-pending { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
-.quick-image-pending[hidden] { display: none; }
 .quick-image-pending strong { overflow-wrap: anywhere; }
 .quick-image-remove { width: fit-content; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--white); font-size: 10px; }
 .task-overview-image { width: fit-content; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--white); font-size: 10px; }
-@media (prefers-reduced-motion: reduce) { .quick-input-button { transition: none; } }
-@media (max-width: 600px) { .quick-input-heading { align-items: flex-start; flex-direction: column; } .quick-input-actions { width: 100%; } .quick-input-button { flex: 1; } }
 `;
 document.head.appendChild(quickInputStyle);
 
 let pendingTaskImage = null;
 const quickInputStatus = document.getElementById('quickInputStatus');
+const quickImageField = document.getElementById('quickImageField');
 const quickImageFile = document.getElementById('quickImageFile');
 const quickImagePending = document.getElementById('quickImagePending');
+const taskImageEventType = document.getElementById('eventType');
 
-function openQuickTaskForm() {
-  openModal('task');
-  syncStudyFields();
-  document.getElementById('eventName').focus();
+function syncQuickImageField() {
+  const isTask = taskImageEventType.value === 'task';
+  quickImageField.hidden = !isTask;
+  if (!isTask) clearPendingTaskImage();
 }
 
 function clearPendingTaskImage() {
@@ -60,6 +46,12 @@ function clearPendingTaskImage() {
   document.getElementById('quickImageName').textContent = '';
   quickInputStatus.textContent = '';
 }
+
+const openModalWithImageField = openModal;
+openModal = (type = 'class') => {
+  openModalWithImageField(type);
+  syncQuickImageField();
+};
 
 function openTaskImageDatabase() {
   return new Promise((resolve, reject) => {
@@ -162,10 +154,6 @@ createStudyPlan = options => {
   return plan;
 };
 
-document.getElementById('quickTextInput').addEventListener('click', () => {
-  clearPendingTaskImage();
-  openQuickTaskForm();
-});
 document.getElementById('quickImageInput').addEventListener('click', () => quickImageFile.click());
 quickImageFile.addEventListener('change', event => {
   const file = event.currentTarget.files?.[0];
@@ -178,8 +166,7 @@ quickImageFile.addEventListener('change', event => {
   pendingTaskImage = file;
   quickImagePending.hidden = false;
   document.getElementById('quickImageName').textContent = file.name;
-  quickInputStatus.textContent = '課題の登録時に画像をこの端末へ保存します。課題名や締切を入力してください。';
-  openQuickTaskForm();
+  quickInputStatus.textContent = '課題の登録時にこの端末へ保存します。';
 });
 document.getElementById('removeQuickImage').addEventListener('click', clearPendingTaskImage);
 for (const id of ['closeModal', 'cancelModal']) {
@@ -188,6 +175,5 @@ for (const id of ['closeModal', 'cancelModal']) {
 document.getElementById('modalBackdrop').addEventListener('click', event => {
   if (event.target.id === 'modalBackdrop') clearPendingTaskImage();
 });
-document.getElementById('eventType').addEventListener('change', event => {
-  if (event.currentTarget.value !== 'task') clearPendingTaskImage();
-});
+taskImageEventType.addEventListener('change', syncQuickImageField);
+syncQuickImageField();

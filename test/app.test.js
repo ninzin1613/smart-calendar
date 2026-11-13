@@ -14,8 +14,8 @@ const quickInputScript = fs.readFileSync(path.join(__dirname, '..', 'quick-input
 assert.match(html, /<script src="\.\/weekly-review\.js"><\/script>/, 'index.html must load the weekly review script');
 assert.match(html, /<script src="\.\/study-planning\.js"><\/script>/, 'index.html must load the study planning script');
 assert.match(html, /<script src="\.\/spare-time\.js"><\/script>/, 'index.html must load the spare-time suggestion script');
-assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261113-summary-heading-removed"><\/script>/, 'index.html must load the current dashboard enhancements');
-assert.match(html, /<script src="\.\/quick-input\.js"><\/script>/, 'index.html must load quick input support');
+assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261113-taskrou-choice-sync"><\/script>/, 'index.html must load the current dashboard enhancements');
+assert.match(html, /<script src="\.\/quick-input\.js\?v=20261113-taskrou-chat-input"><\/script>/, 'index.html must load task image support');
 assert.ok(appScripts.length, 'index.html must contain the application script');
 
 function createAppHarness(values = new Map(), browserFeatures = {}) {
@@ -843,7 +843,7 @@ test('spare-time duration and condition filters persist and change recommendatio
   assert.deepEqual(result.saved, { location: 'library', fatigue: 3, duration: 60, mode: 'focus' });
 });
 
-test('character station warns about overloaded days and supports resting and resuming', () => {
+test('character station warns about overloaded days and responds to declining a suggestion', () => {
   const storage = new Map();
   const app = createAppHarness(storage);
   const result = JSON.parse(app.run(`(() => {
@@ -858,10 +858,14 @@ test('character station warns about overloaded days and supports resting and res
       message: document.getElementById('characterMessage').textContent,
       warningHidden: document.getElementById('capacityPanic').hidden
     };
-    document.getElementById('takeRestDay').dispatch('click', {});
-    const resting = { markup: document.getElementById('characterAvatar').innerHTML, restDays: data.restDays };
-    document.getElementById('takeRestDay').dispatch('click', {});
-    return JSON.stringify({ overloaded, resting, resumed: data.restDays });
+    document.getElementById('declineSuggestion').dispatch('click', {});
+    const resting = {
+      markup: document.getElementById('characterAvatar').innerHTML,
+      label: document.getElementById('characterAvatar').getAttribute('aria-label'),
+      message: document.getElementById('characterMessage').textContent,
+      restDays: data.restDays
+    };
+    return JSON.stringify({ overloaded, resting });
   })()`));
 
   assert.match(result.overloaded.markup, /data-mood="concerned"/);
@@ -869,9 +873,9 @@ test('character station warns about overloaded days and supports resting and res
   assert.match(result.overloaded.message, /無理はしないで/);
   assert.equal(result.overloaded.warningHidden, false);
   assert.match(result.resting.markup, /data-mood="resting"/);
-  assert.equal(result.resting.restDays.length, 1);
-  assert.deepEqual(result.resumed, []);
-  assert.equal(JSON.parse(storage.get('smart-calendar-v1')).restDays.length, 0);
+  assert.equal(result.resting.label, 'TASKROU、休息の表情');
+  assert.match(result.resting.message, /ひと休み/);
+  assert.deepEqual(result.resting.restDays, []);
 });
 
 test('AI character is rendered as inline owl artwork with a mood-specific expression', () => {
@@ -885,7 +889,8 @@ test('AI character is rendered as inline owl artwork with a mood-specific expres
     renderCharacterStation();
     return JSON.stringify({
       markup: document.getElementById('characterAvatar').innerHTML,
-      label: document.getElementById('characterAvatar').getAttribute('aria-label')
+      label: document.getElementById('characterAvatar').getAttribute('aria-label'),
+      message: document.getElementById('characterMessage').textContent
     });
   })()`);
   const result = JSON.parse(rawResult);
@@ -899,7 +904,10 @@ test('AI character is rendered as inline owl artwork with a mood-specific expres
   assert.match(result.markup, /cx="69" cy="73" rx="13" ry="16"/);
   assert.match(result.markup, /class="owl-crown"/);
   assert.equal(result.label, 'TASKROU、応援の表情');
+  assert.match(result.message, /\d{2}:\d{2}〜\d{2}:\d{2}/);
   assert.match(dashboardEnhancementsScript, /TASKROU · AI STUDY COMPANION/);
+  assert.match(dashboardEnhancementsScript, /\.character-bubble::before/);
+  assert.doesNotMatch(dashboardEnhancementsScript, /登録済みの課題・予定をもとに/);
   assert.match(dashboardEnhancementsScript, /owl-mascot\[data-mood="concerned"\]/);
   assert.match(dashboardEnhancementsScript, /owl-mascot\[data-mood="celebratory"\]/);
   assert.match(dashboardEnhancementsScript, /owl-blink/);
@@ -923,12 +931,70 @@ test('completing a task activates the celebratory owl expression', () => {
   assert.match(result, /owl-books/);
 });
 
-test('quick text input opens task entry and image input stores a local attachment', async () => {
-  const textApp = createAppHarness();
-  textApp.document.getElementById('quickTextInput').dispatch('click', {});
-  assert.ok(textApp.document.getElementById('modalBackdrop').classList.added.includes('open'));
-  assert.equal(textApp.document.getElementById('eventType').value, 'task');
+test('TASKROU suggestion choices reply with matching expressions without starting a timer', () => {
+  const app = createAppHarness();
+  app.run(`data.fixed = []; data.extras = []; data.sessions = []; data.plans = []; data.tasks = [
+    { id: 'stats', name: '統計レポート', due: dateKey(addDays(today, 2)), hours: 2, remaining: 1, done: false },
+    { id: 'english', name: '英語資料', due: dateKey(addDays(today, 4)), hours: 1, remaining: 1, done: false }
+  ]; renderCharacterStation()`);
 
+  const suggestedTaskName = app.run('characterSuggestedTaskName');
+  const alternativeName = app.run(`getPriorityPlans().find(plan => plan.name !== characterSuggestedTaskName).name`);
+  assert.match(dashboardEnhancementsScript, /id="acceptSuggestion">実行する<\/button>/);
+  assert.match(dashboardEnhancementsScript, /id="declineSuggestion">やめとく<\/button>/);
+  assert.match(dashboardEnhancementsScript, /id="chooseOtherTask">他のこと<\/button>/);
+
+  app.document.getElementById('chooseOtherTask').dispatch('click', {});
+  assert.equal(app.document.getElementById('characterAvatar').getAttribute('aria-label'), 'TASKROU、応援の表情');
+  assert.match(app.document.getElementById('characterMessage').textContent, new RegExp(alternativeName));
+
+  app.document.getElementById('acceptSuggestion').dispatch('click', {});
+  assert.equal(app.document.getElementById('characterAvatar').getAttribute('aria-label'), 'TASKROU、気合十分の表情');
+  assert.match(app.document.getElementById('characterAvatar').innerHTML, /data-mood="focused"/);
+  assert.match(app.document.getElementById('characterAvatar').innerHTML, /d="m52 56 18-5m58 5-18-5"/);
+  assert.match(app.document.getElementById('characterMessage').textContent, new RegExp(alternativeName));
+  assert.doesNotMatch(app.document.getElementById('characterMessage').textContent, new RegExp(suggestedTaskName));
+  assert.equal(app.run('data.activeTimer'), null);
+
+  app.document.getElementById('declineSuggestion').dispatch('click', {});
+  assert.equal(app.document.getElementById('characterAvatar').getAttribute('aria-label'), 'TASKROU、休息の表情');
+  assert.match(app.document.getElementById('characterAvatar').innerHTML, /data-mood="resting"/);
+  assert.match(app.document.getElementById('characterMessage').textContent, /ひと休み/);
+  assert.equal(app.run('JSON.stringify(data.restDays)'), '[]');
+});
+
+test('TASKROU consultation uses local task details and leaves empty submissions unanswered', () => {
+  const app = createAppHarness();
+  app.run(`data.plans = []; data.fixed = []; data.extras = []; data.sessions = []; data.tasks = [{
+    id: 'consult-task', name: '統計レポート', due: dateKey(addDays(today, 2)), hours: 2, remaining: 1, done: false
+  }]`);
+  const input = app.document.getElementById('characterChatInput');
+  const history = app.document.getElementById('characterChatHistory');
+  const form = app.document.getElementById('characterChatForm');
+  let prevented = false;
+
+  input.value = '統計レポートは何から始めればいい？';
+  form.dispatch('submit', { preventDefault() { prevented = true; } });
+
+  assert.equal(prevented, true);
+  assert.equal(input.value, '');
+  assert.match(history.innerHTML, /統計レポート/);
+  assert.match(history.innerHTML, /残りは約1時間/);
+  assert.match(history.innerHTML, /TASKROU/);
+  assert.doesNotMatch(quickInputScript, /クイック入力|quick-input-panel|quickTextInput/);
+
+  app.run('data.plans = []; data.tasks = []');
+  input.value = '今日何をすればいい？';
+  form.dispatch('submit', { preventDefault() {} });
+  assert.match(history.innerHTML, /未完了の課題はありません/);
+
+  const messageCount = (history.innerHTML.match(/character-chat-entry user/g) || []).length;
+  input.value = '   ';
+  form.dispatch('submit', { preventDefault() {} });
+  assert.equal((history.innerHTML.match(/character-chat-entry user/g) || []).length, messageCount);
+});
+
+test('task modal keeps local image attachments available without a quick-input panel', async () => {
   const imageDatabase = createMemoryImageDatabase();
   const storage = new Map();
   const openedImageUrls = [];
@@ -937,6 +1003,7 @@ test('quick text input opens task entry and image input stores a local attachmen
     URL: { createObjectURL(blob) { const url = `blob:${blob.name}`; openedImageUrls.push(url); return url; }, revokeObjectURL() {} }
   });
   const file = { name: 'lecture-notes.png', type: 'image/png', size: 1024 };
+  imageApp.run("openModal('task')");
   const fileInput = imageApp.document.getElementById('quickImageFile');
   imageApp.document.getElementById('quickImageInput').dispatch('click', {});
   assert.equal(fileInput.clicked, true);
@@ -944,6 +1011,7 @@ test('quick text input opens task entry and image input stores a local attachmen
   fileInput.dispatch('change', { currentTarget: fileInput });
 
   assert.equal(imageApp.document.getElementById('eventType').value, 'task');
+  assert.equal(imageApp.document.getElementById('quickImageField').hidden, false);
   assert.equal(imageApp.document.getElementById('quickImagePending').hidden, false);
   imageApp.run(`createStudyPlan({
     name: '講義ノートの復習',
@@ -986,7 +1054,6 @@ test('character station schedules a 20-minute task in the next open interval', (
   assert.equal(app.run('durationHours(data.sessions[0].start, data.sessions[0].end)'), 1 / 3);
   assert.equal(result.session.id, app.run('data.activeTimer.sessionId'));
   assert.match(app.document.getElementById('studyTimerReadout').textContent, /作業中 20:00/);
-  assert.equal(app.document.getElementById('startTwentyMinuteTask').disabled, true);
   assert.match(app.document.getElementById('characterAvatar').innerHTML, /data-timer-active="true"/);
   assert.equal(JSON.parse(storage.get('smart-calendar-v1')).sessions[0].taskId, 'quick-task');
   const restoredApp = createAppHarness(storage);
