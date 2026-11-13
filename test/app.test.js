@@ -10,13 +10,15 @@ const reviewScript = fs.readFileSync(path.join(__dirname, '..', 'weekly-review.j
 const studyPlanningScript = fs.readFileSync(path.join(__dirname, '..', 'study-planning.js'), 'utf8');
 const spareTimeScript = fs.readFileSync(path.join(__dirname, '..', 'spare-time.js'), 'utf8');
 const dashboardEnhancementsScript = fs.readFileSync(path.join(__dirname, '..', 'dashboard-enhancements.js'), 'utf8');
+const quickInputScript = fs.readFileSync(path.join(__dirname, '..', 'quick-input.js'), 'utf8');
 assert.match(html, /<script src="\.\/weekly-review\.js"><\/script>/, 'index.html must load the weekly review script');
 assert.match(html, /<script src="\.\/study-planning\.js"><\/script>/, 'index.html must load the study planning script');
 assert.match(html, /<script src="\.\/spare-time\.js"><\/script>/, 'index.html must load the spare-time suggestion script');
-assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261109"><\/script>/, 'index.html must load the current dashboard enhancements');
+assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261113"><\/script>/, 'index.html must load the current dashboard enhancements');
+assert.match(html, /<script src="\.\/quick-input\.js"><\/script>/, 'index.html must load quick input support');
 assert.ok(appScripts.length, 'index.html must contain the application script');
 
-function createAppHarness(values = new Map()) {
+function createAppHarness(values = new Map(), browserFeatures = {}) {
   const elements = new Map();
   const makeElement = () => ({
     style: {},
@@ -49,6 +51,7 @@ function createAppHarness(values = new Map()) {
     querySelectorAll() { return []; },
     reset() {},
     focus() {},
+    click() { this.clicked = true; this.dispatch('click', { currentTarget: this }); },
     textContent: '',
     innerHTML: '',
     value: ''
@@ -83,16 +86,57 @@ function createAppHarness(values = new Map()) {
     structuredClone(value) { return structuredClone(value); },
     setTimeout() { return 1; },
     setInterval() { return 1; },
-    clearTimeout() {}
+    clearTimeout() {},
+    ...browserFeatures
   });
   for (const [index, script] of appScripts.entries()) new vm.Script(script, { filename: `index.html#script-${index + 1}` }).runInContext(context);
   new vm.Script(reviewScript, { filename: 'weekly-review.js' }).runInContext(context);
   new vm.Script(studyPlanningScript, { filename: 'study-planning.js' }).runInContext(context);
   new vm.Script(spareTimeScript, { filename: 'spare-time.js' }).runInContext(context);
   new vm.Script(dashboardEnhancementsScript, { filename: 'dashboard-enhancements.js' }).runInContext(context);
+  new vm.Script(quickInputScript, { filename: 'quick-input.js' }).runInContext(context);
   return {
     document,
     run(source) { return vm.runInContext(source, context); }
+  };
+}
+
+function createMemoryImageDatabase() {
+  const records = new Map();
+  const database = {
+    objectStoreNames: { contains() { return true; } },
+    close() {},
+    transaction() {
+      const transaction = {
+        objectStore() {
+          return {
+            put(record, key) {
+              records.set(key, record);
+              queueMicrotask(() => transaction.oncomplete?.());
+            },
+            get(key) {
+              const request = {};
+              queueMicrotask(() => {
+                request.result = records.get(key);
+                request.onsuccess?.();
+              });
+              return request;
+            }
+          };
+        }
+      };
+      return transaction;
+    }
+  };
+  return {
+    records,
+    indexedDB: {
+      open() {
+        const request = { result: database };
+        queueMicrotask(() => request.onsuccess?.());
+        return request;
+      }
+    }
   };
 }
 
@@ -791,13 +835,79 @@ test('AI character is rendered as inline owl artwork with a mood-specific expres
   assert.match(result.markup, /<svg class="owl-mascot" data-mood="encouraging"/);
   assert.match(result.markup, /class="owl-glasses"/);
   assert.match(result.markup, /class="owl-clock"/);
-  assert.doesNotMatch(result.markup, /owl-quill/);
-  assert.match(result.markup, /cx="42" cy="55" r="16"/);
-  assert.match(result.markup, /cx="42" cy="55" rx="10\.5" ry="12\.5"/);
+  assert.match(result.markup, /class="owl-quill"/);
+  assert.match(result.markup, /viewBox="0 0 180 205"/);
+  assert.match(result.markup, /cx="69" cy="73" r="24"/);
+  assert.match(result.markup, /cx="69" cy="73" rx="13" ry="16"/);
+  assert.match(result.markup, /class="owl-crown"/);
   assert.equal(result.label, 'TASKROU、応援の表情');
   assert.match(dashboardEnhancementsScript, /TASKROU · AI STUDY COMPANION/);
   assert.match(dashboardEnhancementsScript, /owl-mascot\[data-mood="concerned"\]/);
   assert.match(dashboardEnhancementsScript, /owl-mascot\[data-mood="celebratory"\]/);
+  assert.match(dashboardEnhancementsScript, /owl-blink/);
+  assert.match(dashboardEnhancementsScript, /prefers-reduced-motion:\s*reduce/);
+});
+
+test('completing a task activates the celebratory owl expression', () => {
+  const app = createAppHarness();
+  const result = app.run(`(() => {
+    data.fixed = [];
+    data.extras = [];
+    data.sessions = [];
+    data.tasks = [{ id: 'finished', name: '読書課題', due: dateKey(addDays(today, 2)), hours: 1, remaining: 0, done: true }];
+    celebrateTaskCompletion('finished');
+    return document.getElementById('characterAvatar').innerHTML;
+  })()`);
+
+  assert.match(result, /data-mood="celebratory"/);
+  assert.match(result, /class="owl-eye" d="M48 75/);
+  assert.match(result, /owl-confetti/);
+  assert.match(result, /owl-books/);
+});
+
+test('quick text input opens task entry and image input stores a local attachment', async () => {
+  const textApp = createAppHarness();
+  textApp.document.getElementById('quickTextInput').dispatch('click', {});
+  assert.ok(textApp.document.getElementById('modalBackdrop').classList.added.includes('open'));
+  assert.equal(textApp.document.getElementById('eventType').value, 'task');
+
+  const imageDatabase = createMemoryImageDatabase();
+  const storage = new Map();
+  const openedImageUrls = [];
+  const imageApp = createAppHarness(storage, {
+    indexedDB: imageDatabase.indexedDB,
+    URL: { createObjectURL(blob) { const url = `blob:${blob.name}`; openedImageUrls.push(url); return url; }, revokeObjectURL() {} }
+  });
+  const file = { name: 'lecture-notes.png', type: 'image/png', size: 1024 };
+  const fileInput = imageApp.document.getElementById('quickImageFile');
+  imageApp.document.getElementById('quickImageInput').dispatch('click', {});
+  assert.equal(fileInput.clicked, true);
+  fileInput.files = [file];
+  fileInput.dispatch('change', { currentTarget: fileInput });
+
+  assert.equal(imageApp.document.getElementById('eventType').value, 'task');
+  assert.equal(imageApp.document.getElementById('quickImagePending').hidden, false);
+  imageApp.run(`createStudyPlan({
+    name: '講義ノートの復習',
+    kind: 'reading',
+    due: dateKey(addDays(today, 2)),
+    workload: 10,
+    difficulty: 2,
+    hours: 1,
+    credits: 1,
+    progress: 0,
+    scope: ''
+  })`);
+  await new Promise(resolve => setImmediate(resolve));
+
+  const plan = JSON.parse(storage.get('smart-calendar-v1')).plans.at(-1);
+  assert.equal(plan.imageAttachmentName, 'lecture-notes.png');
+  assert.equal(imageDatabase.records.get(plan.id).blob, file);
+  imageApp.run('renderTaskOverview()');
+  assert.match(imageApp.document.getElementById('taskOverviewList').innerHTML, /画像を開く：lecture-notes\.png/);
+  imageApp.run(`openTaskImage('${plan.id}')`);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(openedImageUrls, ['blob:lecture-notes.png']);
 });
 
 test('character station schedules a 20-minute task in the next open interval', () => {
@@ -816,7 +926,18 @@ test('character station schedules a 20-minute task in the next open interval', (
   assert.equal(result.added, true);
   assert.equal(result.session.taskId, 'quick-task');
   assert.equal(app.run('durationHours(data.sessions[0].start, data.sessions[0].end)'), 1 / 3);
+  assert.equal(result.session.id, app.run('data.activeTimer.sessionId'));
+  assert.match(app.document.getElementById('studyTimerReadout').textContent, /作業中 20:00/);
+  assert.equal(app.document.getElementById('startTwentyMinuteTask').disabled, true);
+  assert.match(app.document.getElementById('characterAvatar').innerHTML, /data-timer-active="true"/);
   assert.equal(JSON.parse(storage.get('smart-calendar-v1')).sessions[0].taskId, 'quick-task');
+  const restoredApp = createAppHarness(storage);
+  assert.equal(restoredApp.run('data.activeTimer.sessionId'), result.session.id);
+
+  app.run('data.activeTimer.endsAt = Date.now() - 1; updateStudyTimer()');
+  assert.equal(app.run('data.activeTimer'), null);
+  assert.equal(app.document.getElementById('studyTimerReadout').hidden, true);
+  assert.equal(app.run('data.sessions[0].done'), false);
 });
 
 test('calendar keeps its existing grid layout while marking AI tasks, progress, and deadlines', () => {
@@ -825,7 +946,7 @@ test('calendar keeps its existing grid layout while marking AI tasks, progress, 
     data.fixed = [];
     data.extras = [];
     data.sessions = [];
-    const due = dateKey(addDays(today, 5));
+    const due = dateKey(addDays(today, 1));
     const plan = createStudyPlan({
       name: 'レポート課題',
       kind: 'report',
@@ -984,4 +1105,5 @@ test('GitHub Pages deploy waits for the passing test job', () => {
   assert.match(deployJob[1], /cp study-planning\.js dist\/study-planning\.js/);
   assert.match(deployJob[1], /cp spare-time\.js dist\/spare-time\.js/);
   assert.match(deployJob[1], /cp dashboard-enhancements\.js dist\/dashboard-enhancements\.js/);
+  assert.match(deployJob[1], /cp quick-input\.js dist\/quick-input\.js/);
 });

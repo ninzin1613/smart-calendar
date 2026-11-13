@@ -1,4 +1,9 @@
 data.restDays = Array.isArray(data.restDays) ? data.restDays : [];
+data.activeTimer = data.activeTimer && Number.isFinite(data.activeTimer.endsAt)
+  && typeof data.activeTimer.sessionId === 'string'
+  && typeof data.activeTimer.taskId === 'string'
+  ? data.activeTimer
+  : null;
 data.recentlyScheduledSessionIds = [];
 
 document.querySelector('.calendar-shell').insertAdjacentHTML('beforebegin', `
@@ -6,11 +11,12 @@ document.querySelector('.calendar-shell').insertAdjacentHTML('beforebegin', `
     <div class="character-avatar" id="characterAvatar" role="img"></div>
     <div class="character-message">
       <div class="character-title" id="characterStationTitle"><span class="character-brand">TASKROU · AI STUDY COMPANION</span><span>今日のひとこと</span></div>
-      <div class="character-bubble" id="characterMessage"></div>
+      <div class="character-bubble" id="characterMessage" role="status" aria-live="polite"></div>
       <div class="character-actions">
         <button class="primary-btn character-start" type="button" id="startTwentyMinuteTask">▶ 今すぐ20分作業する</button>
         <button class="secondary-btn" type="button" id="takeRestDay">☕ 今日は休む</button>
       </div>
+      <div class="character-timer" id="studyTimerReadout" role="timer" aria-live="polite" hidden></div>
     </div>
     <div class="capacity-panic" id="capacityPanic" role="status" hidden></div>
   </section>
@@ -36,25 +42,55 @@ document.querySelector('.main').insertAdjacentHTML('beforeend', `
 const enhancementStyle = document.createElement('style');
 enhancementStyle.textContent = `
 .character-station { display: flex; align-items: center; gap: 14px; margin: 16px 0; padding: 12px 16px; border: 1px solid #e5dfcd; border-radius: 12px; background: linear-gradient(110deg, #fffdf6 0%, #fffefa 56%, #f0f7f5 100%); box-shadow: var(--shadow); }
-.character-avatar { display: grid; flex: 0 0 112px; width: 112px; height: 112px; place-items: center; border: 1px solid #e8dfc7; border-radius: 22px; background: radial-gradient(circle at 50% 35%, #fff8df 0, #f8edc8 72%, #f0e5c4 100%); }
-.owl-mascot { display: block; width: 100px; height: 106px; overflow: visible; filter: drop-shadow(0 3px 1px rgba(71, 58, 39, .12)); }
-.owl-body { fill: #f2cf72; stroke: #59432c; stroke-width: 2.4; stroke-linejoin: round; }
-.owl-face { fill: #fff4d9; stroke: #755636; stroke-width: 1.8; }
+.character-avatar { display: grid; flex: 0 0 132px; width: 132px; height: 144px; place-items: center; border: 1px solid #e8dfc7; border-radius: 22px; background: radial-gradient(circle at 50% 35%, #fff8df 0, #f8edc8 72%, #f0e5c4 100%); }
+.owl-mascot { display: block; width: 122px; height: 140px; overflow: visible; filter: drop-shadow(0 3px 1px rgba(71, 58, 39, .12)); }
+.owl-body { fill: #f2cf72; stroke: #59432c; stroke-width: 2.2; stroke-linejoin: round; }
+.owl-tail { fill: #dfb45e; stroke: #705034; stroke-width: 1.8; stroke-linejoin: round; }
+.owl-face { fill: #fff4d9; stroke: #755636; stroke-width: 1.8; stroke-linejoin: round; }
 .owl-wing { fill: #e7b958; stroke: #765437; stroke-width: 1.8; stroke-linejoin: round; }
-.owl-feather { fill: #fff4d9; stroke: #b48b4e; stroke-width: 1; }
-.owl-glasses { fill: #dcebe2; fill-opacity: .3; stroke: #705a3e; stroke-width: 2.4; }
+.owl-feather { fill: #fff4d9; stroke: #b48b4e; stroke-width: 1; stroke-linejoin: round; }
+.owl-feather-line { fill: none; stroke: #bd985b; stroke-width: 1; stroke-linecap: round; }
+.owl-glasses { fill: #d3e6dc; fill-opacity: .48; stroke: #705a3e; stroke-width: 2.4; }
 .owl-glasses-shine { fill: none; stroke: #fffdf0; stroke-width: 1.5; stroke-linecap: round; }
-.owl-eye { fill: #fffdf3; stroke: #73583a; stroke-width: 1.1; }
-.owl-pupil { fill: #51402f; }
+.owl-eye { fill: #f8f8e9; stroke: #73583a; stroke-width: 1.1; }
+.owl-pupil { fill: #516451; }
 .owl-eye-glint { fill: #fff; }
 .owl-beak, .owl-feet, .owl-clock { stroke: #62472e; stroke-linecap: round; stroke-linejoin: round; }
 .owl-beak { fill: #bf8050; stroke-width: 1.5; }
-.owl-feet { fill: none; stroke-width: 2.8; }
-.owl-clock { fill: #fff2ce; stroke-width: 1.7; }
+.owl-feet { fill: none; stroke-width: 3; }
+.owl-clock { fill: #fff6d8; stroke-width: 1.8; }
 .owl-clock-hand { fill: none; stroke: #62472e; stroke-width: 1.4; stroke-linecap: round; }
 .owl-brow, .owl-mouth { fill: none; stroke: #62472e; stroke-width: 1.8; stroke-linecap: round; }
 .owl-sparkle { fill: #d49843; stroke: #a97936; stroke-width: .8; }
 .owl-sweat { fill: #88b9c3; stroke: #547f89; stroke-width: 1; }
+.owl-crown { fill: #d7dfb0; stroke: #7a8053; stroke-width: 1.6; stroke-linejoin: round; }
+.owl-crown-leaf { fill: #a4b77c; stroke: #66794e; stroke-width: .8; }
+.owl-leaf { fill: #91b56d; stroke: #5d7b48; stroke-width: 1; }
+.owl-confetti { fill: #f0bf4e; stroke: #a97936; stroke-width: .7; }
+.owl-book { fill: #a87956; stroke: #5e4637; stroke-width: 1.4; stroke-linejoin: round; }
+.owl-book-page { fill: #e8d6b3; stroke: #6b5039; stroke-width: 1; }
+.owl-quill-barrel { fill: #f2d18a; stroke: #62472e; stroke-width: 1.7; stroke-linejoin: round; }
+.owl-quill-mark { fill: none; stroke: #85633c; stroke-width: 1; stroke-linecap: round; }
+.owl-eyes { transform-box: fill-box; transform-origin: center; animation: owl-blink 3.4s ease-in-out infinite; }
+.owl-mascot { transform-origin: 50% 80%; animation: owl-breathe 3s ease-in-out infinite; }
+.character-avatar { transition: transform .18s ease, box-shadow .18s ease; }
+.character-avatar:hover { transform: translateY(-4px) scale(1.05); box-shadow: 0 8px 18px rgba(89, 67, 44, .12); }
+.character-avatar:active { transform: translateY(-1px) scale(1.02); }
+.owl-mascot[data-mood="encouraging"] .owl-wing { transform-box: fill-box; transform-origin: center top; animation: owl-wing-flap 1.1s ease-in-out infinite; }
+.owl-mascot[data-mood="concerned"] { animation: owl-shiver .45s ease-in-out infinite; }
+.owl-mascot[data-mood="celebratory"] .owl-sparkle { animation: owl-sparkle 1s ease-in-out infinite alternate; }
+.owl-mascot[data-timer-active="true"] .owl-clock { animation: owl-clock-glow 1.8s ease-in-out infinite; }
+.owl-mascot[data-timer-active="true"] .owl-clock-hand { transform-box: fill-box; transform-origin: center; animation: owl-clock-tick 60s steps(60, end) infinite; }
+.character-bubble.is-updating { animation: owl-type-in .65s steps(24, end); }
+.character-timer { margin-top: 7px; color: #557442; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+@keyframes owl-breathe { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-2px) scale(1.015); } }
+@keyframes owl-blink { 0%, 43%, 46%, 100% { transform: scaleY(1); } 44%, 45% { transform: scaleY(.08); } }
+@keyframes owl-wing-flap { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-7deg); } }
+@keyframes owl-shiver { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-1px); } 75% { transform: translateX(1px); } }
+@keyframes owl-sparkle { from { opacity: .55; transform: scale(.8); } to { opacity: 1; transform: scale(1.15); } }
+@keyframes owl-clock-glow { 50% { filter: drop-shadow(0 0 4px #f4cf4f); } }
+@keyframes owl-clock-tick { to { transform: rotate(360deg); } }
+@keyframes owl-type-in { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0); } }
 .owl-mascot[data-mood="concerned"] .owl-body { fill: #e9c678; }
 .owl-mascot[data-mood="resting"] .owl-eye-glint { display: none; }
 .owl-mascot[data-mood="celebratory"] .owl-sparkle { fill: #e7a74f; }
@@ -105,43 +141,135 @@ enhancementStyle.textContent = `
 .task-overview-row.is-done .task-title { text-decoration: line-through; }
 body.task-overview-active .main > :not(.topbar):not(#taskOverview) { display: none; }
 body.task-overview-active #taskOverview { display: block; }
-@media (prefers-reduced-motion: reduce) { .calendar-grid .event.ai-new { animation: none; } }
-@media (max-width: 680px) { .character-station { align-items: flex-start; flex-wrap: wrap; } .character-avatar { flex-basis: 76px; width: 76px; height: 80px; } .owl-mascot { width: 72px; height: 77px; } .character-message { flex-basis: calc(100% - 92px); } .capacity-panic { margin-left: 90px; } .task-fab { right: 14px; bottom: 14px; min-height: 44px; padding: 0 14px; } }
+@media (prefers-reduced-motion: reduce) {
+  .calendar-grid .event.ai-new, .owl-mascot, .owl-eyes, .owl-wing, .owl-sparkle,
+  .owl-mascot[data-timer-active="true"] .owl-clock, .owl-mascot[data-timer-active="true"] .owl-clock-hand,
+  .character-bubble.is-updating { animation: none; }
+  .character-avatar { transition: none; }
+}
+@media (max-width: 680px) { .character-station { align-items: flex-start; flex-wrap: wrap; } .character-avatar { flex-basis: 90px; width: 90px; height: 100px; } .owl-mascot { width: 84px; height: 96px; } .character-message { flex-basis: calc(100% - 106px); } .capacity-panic { margin-left: 104px; } .task-fab { right: 14px; bottom: 14px; min-height: 44px; padding: 0 14px; } }
 `;
 document.head.appendChild(enhancementStyle);
 
 let characterCelebrationUntil = 0;
 
+function getStudyTimerRemaining(timer, now = Date.now()) {
+  return Math.max(0, Math.ceil((timer.endsAt - now) / 1000));
+}
+
+function formatStudyTimer(seconds) {
+  return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function updateStudyTimer() {
+  const readout = document.getElementById('studyTimerReadout');
+  const timer = data.activeTimer;
+  if (!timer) {
+    readout.hidden = true;
+    readout.textContent = '';
+    return;
+  }
+
+  const remaining = getStudyTimerRemaining(timer);
+  if (!remaining) {
+    data.activeTimer = null;
+    save();
+    readout.hidden = true;
+    readout.textContent = '';
+    renderCharacterStation();
+    showToast('集中タイマーが終了しました。おつかれさま！');
+    return;
+  }
+
+  readout.hidden = false;
+  readout.textContent = `作業中 ${formatStudyTimer(remaining)}`;
+}
+
+function stopStudyTimerForTask(taskId) {
+  if (data.activeTimer?.taskId !== taskId) return;
+  data.activeTimer = null;
+  save();
+  updateStudyTimer();
+  renderCharacterStation();
+}
+
+function celebrateTaskCompletion(taskId) {
+  stopStudyTimerForTask(taskId);
+  characterCelebrationUntil = Date.now() + 2600;
+  renderCharacterStation();
+  setTimeout(() => {
+    characterCelebrationUntil = 0;
+    renderCharacterStation();
+  }, 2600);
+}
+
+function setCharacterMessage(text) {
+  const message = document.getElementById('characterMessage');
+  if (message.textContent === text) return;
+  message.textContent = text;
+  message.classList.remove('is-updating');
+  void message.offsetWidth;
+  message.classList.add('is-updating');
+}
+
 function getOwlMarkup(mood) {
-  const eyes = mood === 'resting'
-    ? '<path class="owl-eye" d="M25 57q11 9 22 0m16 0q11 9 22 0"/>'
-    : '<ellipse class="owl-eye" cx="42" cy="55" rx="10.5" ry="12.5"/><ellipse class="owl-eye" cx="78" cy="55" rx="10.5" ry="12.5"/><circle class="owl-pupil" cx="43" cy="56" r="6"/><circle class="owl-pupil" cx="77" cy="56" r="6"/><circle class="owl-eye-glint" cx="45" cy="53" r="2"/><circle class="owl-eye-glint" cx="79" cy="53" r="2"/>';
+  const eyes = mood === 'resting' || mood === 'celebratory'
+    ? '<path class="owl-eye" d="M48 75q20 13 40 0m8 0q20 13 40 0"/>'
+    : '<ellipse class="owl-eye" cx="69" cy="73" rx="13" ry="16"/><ellipse class="owl-eye" cx="111" cy="73" rx="13" ry="16"/><circle class="owl-pupil" cx="70" cy="75" r="7"/><circle class="owl-pupil" cx="110" cy="75" r="7"/><circle class="owl-eye-glint" cx="73" cy="69" r="2.8"/><circle class="owl-eye-glint" cx="113" cy="69" r="2.8"/>'
   const brows = mood === 'concerned'
-    ? '<path class="owl-brow" d="m30 38 15 5m45-5-15 5"/>'
+    ? '<path class="owl-brow" d="m52 51 18 7m58-7-18 7"/>'
     : mood === 'encouraging' || mood === 'celebratory'
-        ? '<path class="owl-brow" d="m30 40 15-3m45 3-15-3"/>'
+        ? '<path class="owl-brow" d="m52 52 18-3m58 3-18-3"/>'
       : '';
   const mouth = mood === 'celebratory'
-    ? '<path class="owl-mouth" d="M53 76q7 9 14 0"/>'
-    : '<path class="owl-mouth" d="m55 75 5 5 5-5"/>';
+    ? '<path class="owl-mouth" d="M81 105q9 13 18 0"/>'
+    : '<path class="owl-mouth" d="m84 102 6 8 6-8"/>'
+  const crown = mood === 'encouraging'
+    ? '<path class="owl-crown" d="M48 57q21-8 42-5 21-4 42 2l-1 6q-21-5-41 0-20-4-40 3z"/><path class="owl-crown-leaf" d="m62 51 4-8 5 8zm25-1 5-8 4 8zm25 1 4-7 5 8z"/>'
+    : '';
   const extras = mood === 'concerned'
-    ? '<path class="owl-sweat" d="M99 48q-6 8 0 11 6-3 0-11z"/>'
+    ? '<path class="owl-sweat" d="M151 62q-9 13 0 18 9-5 0-18z"/>'
     : mood === 'encouraging'
-        ? '<path class="owl-sparkle" d="m103 35 2 4 4 1-4 2-2 4-1-4-4-2 4-1z"/>'
+        ? '<path class="owl-sparkle" d="m153 37 3 6 6 2-6 3-3 6-2-6-6-3 6-2z"/>'
       : mood === 'celebratory'
-          ? '<path class="owl-sparkle" d="m16 41 2 4 4 1-4 2-2 4-1-4-4-2 4-1z"/><path class="owl-sparkle" d="m103 59 2 3 3 1-3 2-2 3-1-3-3-2 3-1z"/>'
+          ? '<path class="owl-sparkle" d="m21 57 3 6 6 2-6 3-3 6-2-6-6-3 6-2z"/><path class="owl-sparkle" d="m157 90 3 5 5 2-5 2-3 5-2-5-5-2 5-2z"/><path class="owl-confetti" d="m37 37 5-8 4 8-5 7zm90-11 7-5 1 9-7 5z"/>'
+        : mood === 'resting'
+          ? '<path class="owl-sparkle" d="m150 45 2 4 4 1-4 2-2 4-1-4-4-2 4-1z"/>'
         : '';
-  return `<svg class="owl-mascot" data-mood="${mood}" viewBox="0 0 120 130" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <path class="owl-body" d="M28 43Q17 35 17 20q14 3 25 16 18-10 36 0 11-13 25-16-1 15-12 24 15 12 14 37-1 27-25 36-20 9-40 0-24-9-25-36-1-25 13-38z"/>
-    <path class="owl-face" d="M21 53q7-21 25-21 8 0 14 6 7-6 15-6 19 0 25 22-5 21-20 31-10 7-20 7-11 0-21-7Q25 75 21 53z"/>
-    <path class="owl-wing" d="M23 58Q9 64 13 83q2 15 17 21 9 2 14-13z"/><path class="owl-wing" d="M97 58q14 6 10 25-2 15-17 21-9 2-14-13z"/>
-    <path class="owl-feather" d="m23 77 17 18m-19-9 12 13m64-22L80 95m19-9-12 13"/>
-    <path class="owl-feather" d="M42 83q7 12 18 13l-6 10q-11-5-16-15zm18 13q12-1 19-13l6 8q-7 13-19 16z"/>
-    ${brows}${eyes}
-    <circle class="owl-glasses" cx="42" cy="55" r="16"/><circle class="owl-glasses" cx="78" cy="55" r="16"/><path d="M59 53q1-3 2 0m-2 1q-2-3-1-4" fill="none" stroke="#705a3e" stroke-width="2.5" stroke-linecap="round"/><path class="owl-glasses-shine" d="M30 46q4-5 9-5m31 5q4-5 9-5"/>
-    <path class="owl-beak" d="m55 68 5-6 5 6-5 9z"/>${mouth}
-    <circle class="owl-clock" cx="60" cy="99" r="11"/><circle cx="60" cy="99" r="8" fill="none" stroke="#b48b4e" stroke-width=".8"/><path class="owl-clock-hand" d="M60 92v7l5 3"/><circle cx="60" cy="99" r="1.4" fill="#62472e"/>
-    <path class="owl-feet" d="m46 115-2 8-7 2m8-4 5 5m24-11 2 8 7 2m-9-4-5 5"/>
+  const timerActive = data.activeTimer && getStudyTimerRemaining(data.activeTimer) > 0;
+  return `<svg class="owl-mascot" data-mood="${mood}" data-timer-active="${Boolean(timerActive)}" viewBox="0 0 180 205" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <ellipse cx="92" cy="194" rx="70" ry="5" fill="#8fc8cf" opacity=".3"/>
+    <path class="owl-tail" d="M128 127q26 2 39 24l-21-1 17 20-27-5-18-17z"/>
+    <path class="owl-body" d="M49 53Q66 34 91 35q27-1 45 19 22 20 23 53 2 39-23 60-25 20-51 13-33-4-51-29-18-24-11-58 5-24 26-40z"/>
+    <path class="owl-feather" d="M48 108q19 15 44 16 26 0 47-15 1 32-18 49-27 21-53 2-17-13-20-52z"/>
+    <path class="owl-feather-line" d="M58 130q4 19 17 28m1-30q5 21 15 32m2-32q0 17 6 31m7-33q-1 17-1 29m11-35q-5 17-9 24"/>
+    <path class="owl-wing" d="M49 78Q25 75 21 102q-4 29 17 45 14 8 24-9 8-17 1-40z"/>
+    <path class="owl-feather" d="M30 117q9 10 25 17l-7 10q-14-7-20-19zm-1-17q10 12 25 18l-4 9q-15-7-23-18z"/>
+    <path class="owl-wing" d="M130 72q29-8 42 20 13 29-3 58-10 17-26 7-20-12-22-39-2-29 9-46z"/>
+    <path class="owl-feather" d="M165 119q-10 13-25 19l9 12q15-8 22-23zm2-18q-11 13-27 19l6 10q16-8 24-19z"/>
+    <path class="owl-face" d="M38 68q8-22 29-24 15-1 24 11 11-12 26-11 22 2 28 26-6 27-24 42-14 11-29 13-17-2-30-13Q42 98 38 68z"/>
+    <path class="owl-feather" d="M52 51Q36 34 39 16q17 13 31 31m40 0q18-20 34-24-1 19-17 33" />
+    <path class="owl-feather-line" d="M46 36q8 9 16 15m59-1q8-8 14-14"/>
+    <path class="owl-brow" d="M56 48q13-9 28 0 7 4 14 0 15-9 28 0"/>
+    <g class="owl-eyes">${eyes}</g>
+    <circle class="owl-glasses" cx="69" cy="73" r="24"/><circle class="owl-glasses" cx="111" cy="73" r="24"/>
+    <path d="M92 70q-2-4-4 0m4 0q2-4 4 0" fill="none" stroke="#705a3e" stroke-width="3.2" stroke-linecap="round"/>
+    <path class="owl-glasses-shine" d="M52 59q5-7 12-7m34 7q5-7 12-7"/>
+    ${crown}
+    <path class="owl-beak" d="m82 91 8-10 8 10-8 13z"/>${mouth}
+    <path class="owl-feather" d="M64 113q13 9 26 10 14-1 27-10"/>
+    <circle class="owl-clock" cx="66" cy="133" r="20"/><circle cx="66" cy="133" r="16" fill="none" stroke="#b48b4e" stroke-width="1"/>
+    <path d="M66 116v3m0 28v3m-17-17h3m28 0h3m-29-12 2 2m20 20 2 2m0-24-2 2m-20 20-2 2" stroke="#b48b4e" stroke-width="1"/>
+    <path class="owl-clock-hand" d="M66 122v11l8 5"/><circle cx="66" cy="133" r="2" fill="#62472e"/>
+    <g class="owl-quill">
+      <path class="owl-quill-barrel" d="m24 151 126 39-3 9-127-39z"/>
+      <path d="m20 160-9 1 9-10z" fill="#c7c5bc" stroke="#62472e" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="m143 188 7 2-3 9-7-2z" fill="#b9b9b4" stroke="#62472e" stroke-width="1.2"/>
+      <path class="owl-quill-mark" d="m37 155-3 9m11-6-3 9"/>
+    </g>
+    <path class="owl-feet" d="m78 163-2 12 7 5 7-6m1-9 1 11 8 5 7-5m-28-1 7 1m13 1 7 2"/>
+    <path class="owl-quill-mark" d="m77 177q7-6 13 0m5 1q8-6 14 0"/>
+    ${mood === 'celebratory' ? '<g class="owl-books"><path class="owl-book" d="m14 151 20 4-2 12-20-4zm3-7 20 4-3 10-20-4z"/><path class="owl-book-page" d="m18 147 15 3m-17 5 14 3"/></g>' : ''}
     ${extras}
   </svg>`;
 }
@@ -206,12 +334,18 @@ function renderTaskOverview() {
     const detailMarkup = details.map(([label, value]) =>
       `<div class="task-overview-detail${label === 'テスト範囲' || label === 'この小タスク' ? ' task-overview-detail-wide' : ''}"><div class="task-overview-detail-label">${label}</div><div class="task-overview-detail-value">${escapeHTML(String(value))}</div></div>`
     ).join('');
+    const imageMarkup = plan?.imageAttachmentName
+      ? `<div class="task-overview-detail task-overview-detail-wide"><div class="task-overview-detail-label">添付画像</div><button class="task-overview-image" type="button" data-task-image="${escapeHTML(plan.id)}">画像を開く：${escapeHTML(plan.imageAttachmentName)}</button></div>`
+      : '';
 
-    return `<div class="task-overview-card"><article class="task-overview-row${completed ? ' is-done' : ''}"><input class="check" type="checkbox" aria-label="${escapeHTML(task.name)}を完了" data-overview-task="${escapeHTML(task.id)}"${completed ? ' checked' : ''}><div class="task-info"><button class="task-overview-trigger" type="button" data-task-detail="${escapeHTML(task.id)}" aria-expanded="${expanded}" aria-controls="${escapeHTML(detailId)}"><span class="task-overview-name">${name}</span><span class="task-overview-kind">${kind}</span></button><div class="task-meta">残り約${Number(task.remaining || 0).toFixed(Number(task.remaining || 0) % 1 ? 1 : 0)}時間 · ${fmtDate(new Date(`${task.due}T00:00:00`))}締め切り${scope}</div></div><div class="task-overview-status">${completed ? '完了' : dueText}<span class="task-overview-details-link">${expanded ? '詳細を閉じる' : '詳細を見る'}</span></div></article><section class="task-overview-details" id="${escapeHTML(detailId)}" aria-label="${escapeHTML(task.name)}の詳細"${expanded ? '' : ' hidden'}>${detailMarkup}</section></div>`;
+    return `<div class="task-overview-card"><article class="task-overview-row${completed ? ' is-done' : ''}"><input class="check" type="checkbox" aria-label="${escapeHTML(task.name)}を完了" data-overview-task="${escapeHTML(task.id)}"${completed ? ' checked' : ''}><div class="task-info"><button class="task-overview-trigger" type="button" data-task-detail="${escapeHTML(task.id)}" aria-expanded="${expanded}" aria-controls="${escapeHTML(detailId)}"><span class="task-overview-name">${name}</span><span class="task-overview-kind">${kind}</span></button><div class="task-meta">残り約${Number(task.remaining || 0).toFixed(Number(task.remaining || 0) % 1 ? 1 : 0)}時間 · ${fmtDate(new Date(`${task.due}T00:00:00`))}締め切り${scope}</div></div><div class="task-overview-status">${completed ? '完了' : dueText}<span class="task-overview-details-link">${expanded ? '詳細を閉じる' : '詳細を見る'}</span></div></article><section class="task-overview-details" id="${escapeHTML(detailId)}" aria-label="${escapeHTML(task.name)}の詳細"${expanded ? '' : ' hidden'}>${detailMarkup}${imageMarkup}</section></div>`;
   }).join('');
 
   list.querySelectorAll('[data-task-detail]').forEach(element => element.addEventListener('click', () => {
     toggleTaskDetail(element.dataset.taskDetail);
+  }));
+  list.querySelectorAll('[data-task-image]').forEach(element => element.addEventListener('click', () => {
+    openTaskImage(element.dataset.taskImage);
   }));
   list.querySelectorAll('[data-overview-task]').forEach(element => element.addEventListener('change', () => {
     const task = data.tasks.find(item => item.id === element.dataset.overviewTask);
@@ -220,15 +354,9 @@ function renderTaskOverview() {
     task.remaining = element.checked ? 0 : task.hours;
     data.sessions = data.sessions.filter(session => session.taskId !== task.id);
     save();
-    if (element.checked) characterCelebrationUntil = Date.now() + 2600;
+    if (element.checked) celebrateTaskCompletion(task.id);
     renderTasks();
     renderCalendar();
-    if (element.checked) {
-      setTimeout(() => {
-        characterCelebrationUntil = 0;
-        renderCharacterStation();
-      }, 2600);
-    }
     showToast(element.checked ? '課題を完了にしました' : '課題を未完了に戻しました');
   }));
 }
@@ -276,36 +404,46 @@ function getTodayCapacity() {
 }
 
 function renderCharacterStation() {
-  const message = document.getElementById('characterMessage');
   const avatar = document.getElementById('characterAvatar');
   const warning = document.getElementById('capacityPanic');
   const startButton = document.getElementById('startTwentyMinuteTask');
   const restButton = document.getElementById('takeRestDay');
   const isRestDay = data.restDays.includes(dateKey(today));
+  const timerRunning = Boolean(data.activeTimer && getStudyTimerRemaining(data.activeTimer) > 0);
   const capacity = getTodayCapacity();
   const priority = typeof getPriorityPlans === 'function' ? getPriorityPlans()[0] : null;
+  const nextFreeGap = getUpcomingStudyGaps().find(gap => gap.minutes >= data.context.duration);
+  const gapSuggestions = nextFreeGap
+    ? getSmartStudySuggestions(nextFreeGap, data.context.location, data.context.fatigue, 20, data.context.mode)
+    : [];
   const overdue = data.tasks.some(task => !task.done && task.due < dateKey(today));
   let mood = 'standard';
 
+  let messageText;
   if (capacity.isOverloaded && !isRestDay) {
     mood = 'concerned';
-    message.textContent = '今日は予定が詰まり気味。できる分だけで大丈夫、無理はしないで！';
+    messageText = '今日は予定が詰まり気味。できる分だけで大丈夫、無理はしないで！';
   } else if (isRestDay) {
     mood = 'resting';
-    message.textContent = '今日は休息の日。しっかり休んで、また明日から少しずつ。';
+    messageText = '今日は休息の日。しっかり休んで、また明日から少しずつ。';
   } else if (overdue) {
     mood = 'concerned';
-    message.textContent = '期限を過ぎた課題があります。まずは小さな一歩から始めましょう。';
+    messageText = '期限を過ぎた課題があります。まずは小さな一歩から始めましょう。';
   } else if (Date.now() < characterCelebrationUntil) {
     mood = 'celebratory';
-    message.textContent = '課題を完了！よく頑張りました。少し休憩しましょう。';
+    messageText = '課題を完了！よく頑張りました。少し休憩しましょう。';
   } else if (priority) {
     mood = 'encouraging';
-    message.textContent = `次は「${priority.name}」がおすすめ。20分だけでも進めれば大丈夫！`;
+    const suggestedTask = gapSuggestions[0]?.task || priority;
+    const time = nextFreeGap
+      ? `${fmtDate(new Date(`${nextFreeGap.day}T00:00:00`))} ${formatGapTime(nextFreeGap.start)}〜${formatGapTime(nextFreeGap.end)}`
+      : '次の空き時間に';
+    messageText = `${time}、「${suggestedTask.name}」を進めませんか？`;
   } else {
-    message.textContent = '今日もいいペースです。空き時間にできることから始めましょう。';
+    messageText = '今日もいいペースです。空き時間にできることから始めましょう。';
   }
 
+  setCharacterMessage(messageText);
   avatar.innerHTML = getOwlMarkup(mood);
   avatar.setAttribute('aria-label', `TASKROU、${{
     standard: '通常',
@@ -316,14 +454,19 @@ function renderCharacterStation() {
   }[mood]}の表情`);
   warning.hidden = !capacity.isOverloaded || isRestDay;
   warning.textContent = `⚠️ 今日は無理しないで！ 空き ${capacity.availableMinutes}分 · 期限が近い課題 ${capacity.demandMinutes}分`;
-  startButton.disabled = isRestDay;
-  startButton.textContent = isRestDay ? '今日は休息中' : '▶ 今すぐ20分作業する';
+  startButton.disabled = isRestDay || timerRunning;
+  startButton.textContent = isRestDay ? '今日は休息中' : timerRunning ? '作業中' : '▶ 今すぐ20分作業する';
   restButton.textContent = isRestDay ? '↩ 休息を取り消す' : '☕ 今日は休む';
+  updateStudyTimer();
 }
 
 function startTwentyMinuteTask() {
   if (data.restDays.includes(dateKey(today))) {
     showToast('今日は休息日です。先に休息を取り消してください');
+    return false;
+  }
+  if (data.activeTimer && getStudyTimerRemaining(data.activeTimer) > 0) {
+    showToast('現在の集中タイマーが終わってから始めてください');
     return false;
   }
   const gap = getUpcomingStudyGaps(new Date(), 1).find(item => item.minutes >= 20);
@@ -334,7 +477,21 @@ function startTwentyMinuteTask() {
     showToast(gap ? '今すぐ取り組める課題がありません' : '今すぐ20分以上の空き時間がありません');
     return false;
   }
-  return addStudySuggestionSession(suggestions[0].task, gap, suggestions[0].minutes);
+  const added = addStudySuggestionSession(suggestions[0].task, gap, suggestions[0].minutes);
+  if (!added) return false;
+  const session = data.sessions.at(-1);
+  const startedAt = Date.now();
+  data.activeTimer = {
+    sessionId: session.id,
+    taskId: session.taskId,
+    startedAt,
+    endsAt: startedAt + durationHours(session.start, session.end) * 60 * 60 * 1000
+  };
+  save();
+  renderCharacterStation();
+  updateStudyTimer();
+  showToast('集中タイマーを開始しました');
+  return true;
 }
 
 document.getElementById('startTwentyMinuteTask').addEventListener('click', startTwentyMinuteTask);
@@ -344,6 +501,8 @@ document.getElementById('takeRestDay').addEventListener('click', () => {
     data.restDays = data.restDays.filter(day => day !== todayKey);
   } else {
     data.restDays.push(todayKey);
+    data.activeTimer = null;
+    save();
   }
   save();
   renderCharacterStation();
@@ -434,5 +593,22 @@ renderTasks = (...args) => {
   renderCharacterStation();
 };
 
+const toggleSessionWithTimer = toggleSession;
+toggleSession = id => {
+  const session = data.sessions.find(item => item.id === id);
+  const wasDone = session?.done;
+  toggleSessionWithTimer(id);
+  const task = session && data.tasks.find(item => item.id === session.taskId);
+  if (session?.done && !wasDone && task && (task.done || task.remaining <= 0)) celebrateTaskCompletion(task.id);
+  else if (!session?.done && data.activeTimer?.sessionId === id) {
+    data.activeTimer = null;
+    save();
+    updateStudyTimer();
+    renderCharacterStation();
+  }
+};
+
+setInterval(updateStudyTimer, 1000);
+updateStudyTimer();
 renderCalendar();
 renderTasks();

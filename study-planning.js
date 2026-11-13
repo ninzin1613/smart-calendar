@@ -190,6 +190,7 @@ function renderPlannedTasks() {
     task.remaining = element.checked ? 0 : task.hours;
     data.sessions = data.sessions.filter(session => session.taskId !== task.id);
     save();
+    if (element.checked && typeof celebrateTaskCompletion === 'function') celebrateTaskCompletion(task.id);
     renderTasks();
     renderCalendar();
     showToast('課題を完了にしました');

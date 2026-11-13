@@ -42,6 +42,7 @@ jobs:
           cp study-planning.js dist/study-planning.js
           cp spare-time.js dist/spare-time.js
           cp dashboard-enhancements.js dist/dashboard-enhancements.js
+          cp quick-input.js dist/quick-input.js
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
