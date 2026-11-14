@@ -12,21 +12,14 @@ document.querySelector('.calendar-shell').insertAdjacentHTML('beforebegin', `
     <div class="character-message">
       <div class="character-title" id="characterStationTitle"><span class="character-brand">TASKROU · AI STUDY COMPANION</span><span>今日のひとこと</span></div>
       <div class="character-bubble" id="characterMessage" role="status" aria-live="polite"></div>
-      <div class="character-actions">
-        <button class="primary-btn character-start" type="button" id="acceptSuggestion">実行する</button>
-        <button class="secondary-btn" type="button" id="declineSuggestion">やめとく</button>
-        <button class="secondary-btn" type="button" id="chooseOtherTask">他のこと</button>
+      <div class="character-actions" id="characterChoices" role="group" aria-label="タスクロウへの返答" aria-live="polite">
+        <button class="primary-btn" type="button" id="characterChoiceOne"></button>
+        <button class="secondary-btn" type="button" id="characterChoiceTwo"></button>
+        <button class="secondary-btn" type="button" id="characterChoiceThree"></button>
       </div>
       <div class="character-timer" id="studyTimerReadout" role="timer" aria-live="polite" hidden></div>
     </div>
     <div class="capacity-panic" id="capacityPanic" role="status" hidden></div>
-    <section class="character-chat" aria-label="タスクロウに相談">
-      <div class="character-chat-history" id="characterChatHistory" role="log" aria-live="polite"></div>
-      <form class="character-chat-form" id="characterChatForm">
-        <input class="character-chat-input" id="characterChatInput" type="text" maxlength="240" aria-label="タスクロウへの相談内容" placeholder="例：今日、何から始めればいい？" autocomplete="off">
-        <button class="character-chat-send" type="submit">相談する</button>
-      </form>
-    </section>
   </section>
 `);
 
@@ -142,21 +135,10 @@ enhancementStyle.textContent = `
 .character-bubble { position: relative; width: fit-content; max-width: 100%; padding: 8px 11px; border-radius: 4px 11px 11px; background: #f2f5ed; font-size: 12px; line-height: 1.5; }
 .character-bubble::before { position: absolute; top: 10px; left: -6px; border-width: 6px 6px 6px 0; border-style: solid; border-color: transparent #f2f5ed transparent transparent; content: ""; }
 .character-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
-.character-actions button { min-height: 31px; height: 31px; font-size: 10px; }
+.character-actions button { min-height: 31px; height: auto; padding: 6px 10px; font-size: 10px; }
 .character-actions .primary-btn { background: var(--green-dark); box-shadow: none; }
 .capacity-panic { flex: 0 0 auto; max-width: 230px; padding: 8px 10px; border-radius: 7px; background: #fff1eb; color: #a64e3c; font-size: 10px; font-weight: 700; }
 .capacity-panic[hidden] { display: none; }
-.character-chat { flex: 0 0 100%; min-width: 0; }
-.character-chat-history { display: grid; gap: 6px; max-height: 150px; margin-top: 10px; overflow-y: auto; }
-.character-chat-history:empty { display: none; }
-.character-chat-entry { max-width: min(680px, 100%); padding: 8px 10px; border-radius: 8px; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
-.character-chat-entry.user { justify-self: end; background: #fff2c8; }
-.character-chat-entry.assistant { justify-self: start; background: #f2f5ed; }
-.character-chat-speaker { display: block; margin-bottom: 2px; color: #718563; font-size: 9px; font-weight: 700; }
-.character-chat-form { display: flex; gap: 7px; margin-top: 10px; }
-.character-chat-input { flex: 1; min-width: 0; height: 38px; padding: 0 10px; border: 1px solid #d8e3ef; border-radius: 8px; background: white; }
-.character-chat-input:focus { outline: 3px solid rgba(139, 207, 120, .2); border-color: var(--green-dark); }
-.character-chat-send { min-width: 78px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--green-dark); color: white; font-size: 10px; font-weight: 700; }
 .task-fab { position: fixed; right: 24px; bottom: 24px; z-index: 9; display: flex; align-items: center; gap: 7px; min-height: 48px; padding: 0 17px; border: 0; border-radius: 25px; background: var(--coral); color: white; box-shadow: 0 5px 16px rgba(80, 52, 40, .25); font-size: 15px; font-weight: 700; }
 .task-fab:hover { background: #e85e52; transform: translateY(-1px); }
 .task-fab span { font-size: 11px; }
@@ -217,6 +199,7 @@ document.head.appendChild(enhancementStyle);
 
 let characterCelebrationUntil = 0;
 let characterSuggestedTaskName = null;
+let characterDialogue = { step: 'suggestion', taskName: null, gap: null };
 
 function getStudyTimerRemaining(timer, now = Date.now()) {
   return Math.max(0, Math.ceil((timer.endsAt - now) / 1000));
@@ -529,32 +512,51 @@ function renderCharacterStation() {
   characterSuggestedTaskName = null;
 
   let messageText;
-  if (capacity.isOverloaded && !isRestDay) {
-    mood = 'concerned';
-    messageText = '今日は予定が詰まり気味。できる分だけで大丈夫、無理はしないで！';
-  } else if (isRestDay) {
-    mood = 'resting';
-    messageText = '今日は休息の日。しっかり休んで、また明日から少しずつ。';
-  } else if (overdue) {
-    mood = 'concerned';
-    messageText = '期限を過ぎた課題があります。まずは小さな一歩から始めましょう。';
-  } else if (Date.now() < characterCelebrationUntil) {
-    mood = 'celebratory';
-    messageText = '課題を完了！よく頑張りました。少し休憩しましょう。';
-  } else if (priority) {
-    mood = 'encouraging';
-    const suggestedTask = gapSuggestions[0]?.task || priority;
-    characterSuggestedTaskName = suggestedTask.name;
-    const time = nextFreeGap
-      ? `${fmtDate(new Date(`${nextFreeGap.day}T00:00:00`))} ${formatGapTime(nextFreeGap.start)}〜${formatGapTime(nextFreeGap.end)}`
-      : '次の空き時間に';
-    messageText = `${time}、「${suggestedTask.name}」を進めませんか？`;
+  const initialSteps = ['suggestion', 'overloaded', 'rest-day', 'overdue', 'celebration', 'no-tasks'];
+  const plans = typeof getPriorityPlans === 'function' ? getPriorityPlans() : [];
+  const currentDialogueTaskExists = !characterDialogue.taskName
+    || plans.some(plan => plan.name === characterDialogue.taskName);
+  if (initialSteps.includes(characterDialogue.step) || !currentDialogueTaskExists) {
+    const suggestedTask = priority && (gapSuggestions[0]?.task || priority);
+    characterDialogue = { step: 'suggestion', taskName: suggestedTask?.name || null, gap: nextFreeGap || null };
+    characterSuggestedTaskName = suggestedTask?.name || null;
+
+    if (capacity.isOverloaded && !isRestDay) {
+      characterDialogue.step = 'overloaded';
+      mood = 'concerned';
+      messageText = '今日は予定が詰まり気味。空き時間を確認して、無理のない計画にしよう！';
+    } else if (isRestDay) {
+      characterDialogue.step = 'rest-day';
+      mood = 'resting';
+      messageText = '今日は休息の日。明日の予定を先に確認しておく？';
+    } else if (overdue) {
+      characterDialogue.step = 'overdue';
+      mood = 'concerned';
+      messageText = '期限を過ぎた課題があるね。今日の予定を見て、進められる時間を探そう。';
+    } else if (Date.now() < characterCelebrationUntil) {
+      characterDialogue.step = 'celebration';
+      mood = 'celebratory';
+      messageText = '課題を完了！よく頑張りました。次の予定を一緒に確認しようか？';
+    } else if (suggestedTask) {
+      mood = 'encouraging';
+      messageText = getInitialScheduleMessage(suggestedTask, nextFreeGap);
+    } else {
+      characterDialogue.step = 'no-tasks';
+      messageText = pickCharacterPhrase([
+        '課題の予定はないみたい。今日の予定や空き時間を一緒に確認しようか？',
+        '今は学習課題が入っていないね。今日のスケジュールを見てみる？',
+        '予定を確認して、空いた時間を見つけてみようか？'
+      ]);
+    }
   } else {
-    messageText = '今日もいいペースです。空き時間にできることから始めましょう。';
+    characterSuggestedTaskName = characterDialogue.taskName;
+    mood = characterDialogue.mood || 'standard';
+    messageText = document.getElementById('characterMessage').textContent;
   }
 
   setCharacterMessage(messageText);
   setCharacterMood(mood);
+  renderCharacterChoices();
   warning.hidden = !capacity.isOverloaded || isRestDay;
   warning.textContent = `⚠️ 今日は無理しないで！ 空き ${capacity.availableMinutes}分 · 期限が近い課題 ${capacity.demandMinutes}分`;
   updateStudyTimer();
@@ -573,76 +575,212 @@ function setCharacterMood(mood) {
   }[mood]}の表情`);
 }
 
-function respondToSuggestion(choice) {
-  if (choice === 'accept') {
-    setCharacterMood('focused');
-    setCharacterMessage(characterSuggestedTaskName
-      ? `いいね！「${characterSuggestedTaskName}」に取り組もう。気合十分、できるところから始めよう！`
-      : 'いいね！やる気が出たね。取り組みたい課題を選んで始めよう！');
-    return;
-  }
-
-  if (choice === 'decline') {
-    setCharacterMood('resting');
-    setCharacterMessage('わかった！今は無理せずひと休みしよう。課題はそのまま残しておくね。');
-    return;
-  }
-
-  const alternative = getPriorityPlans().find(plan => plan.name !== characterSuggestedTaskName);
-  setCharacterMood('encouraging');
-  if (!alternative) {
-    setCharacterMessage('今は他におすすめできる課題がないみたい。別の課題を登録したら一緒に考えるね。');
-    return;
-  }
-
-  characterSuggestedTaskName = alternative.name;
-  setCharacterMessage(`もちろん！では「${alternative.name}」を進めてみるのはどう？`);
+function pickCharacterPhrase(phrases) {
+  return phrases[Math.floor(Math.random() * phrases.length)];
 }
 
-document.getElementById('acceptSuggestion').addEventListener('click', () => respondToSuggestion('accept'));
-document.getElementById('declineSuggestion').addEventListener('click', () => respondToSuggestion('decline'));
-document.getElementById('chooseOtherTask').addEventListener('click', () => respondToSuggestion('other'));
-
-function getCharacterConsultationReply(question) {
-  if (/疲れ|しんど|眠い|休みたい/.test(question)) {
-    return '疲れているなら、まず短く休憩して大丈夫です。無理のないペースで進めましょう。';
-  }
-
-  const plans = getPriorityPlans();
-  const normalizedQuestion = question.toLocaleLowerCase();
-  const plan = plans.find(item => normalizedQuestion.includes(item.name.toLocaleLowerCase())) || plans[0];
-  if (!plan) return '未完了の課題はありません。次の予定を確認して、必要なら新しい課題を登録しましょう。';
-
-  const tasks = data.tasks.filter(task =>
-    plan.legacyTaskId ? task.id === plan.legacyTaskId : task.planId === plan.id
-  );
-  const remaining = tasks.reduce((sum, task) => sum + Number(task.remaining || 0), 0);
-  const due = fmtDate(new Date(`${plan.due}T00:00:00`));
-  const nextGap = getUpcomingStudyGaps(new Date(), 1).find(gap => gap.minutes >= 20);
-  const freeTime = nextGap
-    ? `今日の${formatGapTime(nextGap.start)}〜${formatGapTime(nextGap.end)}`
+function getInitialScheduleMessage(task, gap) {
+  const time = gap
+    ? `${fmtDate(new Date(`${gap.day}T00:00:00`))} ${formatGapTime(gap.start)}〜${formatGapTime(gap.end)}`
     : '次の空き時間';
-  const hasSpecificPlan = normalizedQuestion.includes(plan.name.toLocaleLowerCase());
-  const lead = hasSpecificPlan ? `「${plan.name}」ですね。` : `課題と締切から見ると「${plan.name}」がおすすめです。`;
-
-  return `${lead}締切は${due}、残りは約${remaining.toFixed(remaining % 1 ? 1 : 0)}時間です。${freeTime}に、まず20分だけ最初の作業を進めてみましょう。`;
+  return pickCharacterPhrase([
+    `${time}は空いているよ。「${task.name}」を進めてみる？`,
+    `${time}に「${task.name}」を進めるのはどうかな？`,
+    `次に空いている${time}を使って「${task.name}」を進めてみようか？`
+  ]);
 }
 
-document.getElementById('characterChatForm').addEventListener('submit', event => {
-  event.preventDefault();
-  const input = document.getElementById('characterChatInput');
-  const question = input.value.trim();
-  if (!question) {
-    input.focus();
+function getCharacterDialogueOptions() {
+  const options = {
+    suggestion: [
+      { label: 'この時間に進める', action: 'accept' },
+      { label: '別の時間を探す', action: 'other-time' },
+      { label: '今日の予定を見る', action: 'today' }
+    ],
+    accepted: [
+      { label: '今日の予定を確認', action: 'today' },
+      { label: '別の時間を探す', action: 'other-time' },
+      { label: '別の課題を見る', action: 'other-task' }
+    ],
+    'other-time': [
+      { label: 'この時間がよさそう', action: 'accept' },
+      { label: 'もう一つ探す', action: 'other-time' },
+      { label: '今日の予定を見る', action: 'today' }
+    ],
+    'other-task': [
+      { label: 'この課題にする', action: 'accept' },
+      { label: '別の課題を見る', action: 'other-task' },
+      { label: '今日の予定を見る', action: 'today' }
+    ],
+    today: [
+      { label: '空き時間を探す', action: 'other-time' },
+      { label: '締切が近い課題を見る', action: 'deadline' },
+      { label: '今日は休む', action: 'rest' }
+    ],
+    deadline: [
+      { label: 'この課題を進める', action: 'accept' },
+      { label: '別の時間を探す', action: 'other-time' },
+      { label: '今日の予定を見る', action: 'today' }
+    ],
+    rest: [
+      { label: '明日の予定を見る', action: 'tomorrow' },
+      { label: '空き時間を探す', action: 'other-time' },
+      { label: '最初の提案に戻る', action: 'restart' }
+    ],
+    'no-tasks': [
+      { label: '今日の予定を見る', action: 'today' },
+      { label: '空き時間を確認する', action: 'other-time' },
+      { label: '締切が近い課題を見る', action: 'deadline' }
+    ],
+    overloaded: [
+      { label: '今日の予定を見る', action: 'today' },
+      { label: '別の日を探す', action: 'other-time' },
+      { label: '今日は休む', action: 'rest' }
+    ],
+    'rest-day': [
+      { label: '明日の予定を見る', action: 'tomorrow' },
+      { label: '空き時間を探す', action: 'other-time' },
+      { label: '課題の締切を見る', action: 'deadline' }
+    ],
+    overdue: [
+      { label: '締切が近い課題を見る', action: 'deadline' },
+      { label: '今日の予定を見る', action: 'today' },
+      { label: '別の時間を探す', action: 'other-time' }
+    ],
+    celebration: [
+      { label: '今日の予定を見る', action: 'today' },
+      { label: '次の課題を見る', action: 'deadline' },
+      { label: '空き時間を探す', action: 'other-time' }
+    ]
+  };
+  return options[characterDialogue.step] || options.suggestion;
+}
+
+function renderCharacterChoices() {
+  const options = getCharacterDialogueOptions();
+  ['characterChoiceOne', 'characterChoiceTwo', 'characterChoiceThree'].forEach((id, index) => {
+    const button = document.getElementById(id);
+    button.textContent = options[index].label;
+  });
+}
+
+function getScheduleSummary(day) {
+  const dayKey = dateKey(day);
+  const items = [
+    ...data.fixed.filter(item => item.day === day.getDay()),
+    ...data.extras.filter(item => item.day === dayKey),
+    ...data.sessions.filter(item => item.day === dayKey && !item.done)
+  ].sort((left, right) => left.start.localeCompare(right.start));
+  if (!items.length) return '登録済みの予定はないよ。空き時間を使って、ゆっくり過ごせそうだね。';
+  const details = items.slice(0, 3).map(item =>
+    `${item.start}〜${item.end} ${item.name}`
+  ).join('、');
+  const more = items.length > 3 ? `、ほか${items.length - 3}件` : '';
+  return `${day.getDate()}日の予定は${details}${more}だよ。空き時間を見ながら無理なく進めよう！`;
+}
+
+function getNextCharacterGap() {
+  const gaps = getUpcomingStudyGaps(new Date(), 7).filter(gap => gap.minutes >= 20);
+  const nextGap = gaps.find(gap =>
+    !characterDialogue.gap
+    || gap.day !== characterDialogue.gap.day
+    || gap.start !== characterDialogue.gap.start
+  );
+  return nextGap || null;
+}
+
+function chooseCharacterDialogue(action) {
+  const taskName = characterDialogue.taskName || characterSuggestedTaskName;
+  if (action === 'accept') {
+    characterDialogue.step = 'accepted';
+    characterDialogue.mood = 'focused';
+    setCharacterMood('focused');
+    setCharacterMessage(pickCharacterPhrase([
+      `いいね！${taskName ? `「${taskName}」` : 'この課題'}を${characterDialogue.gap ? `${formatGapTime(characterDialogue.gap.start)}から` : '次の空き時間に'}進めよう。予定に合わせて無理なくいこう！`,
+      `了解！${taskName ? `「${taskName}」` : 'この課題'}を候補にしよう。${characterDialogue.gap ? `${formatGapTime(characterDialogue.gap.start)}から` : '次の空き時間に'}始めるのがよさそうだね。`,
+      `よし、${taskName ? `「${taskName}」` : 'この課題'}にしよう！空いている時間を使って少しずつ進めよう。`
+    ]));
+  } else if (action === 'other-time') {
+    const gap = getNextCharacterGap();
+    characterDialogue.step = 'other-time';
+    characterDialogue.gap = gap;
+    characterDialogue.mood = 'encouraging';
+    setCharacterMood('encouraging');
+    setCharacterMessage(gap
+      ? pickCharacterPhrase([
+          `別の時間なら${fmtDate(new Date(`${gap.day}T00:00:00`))} ${formatGapTime(gap.start)}〜${formatGapTime(gap.end)}が空いているよ。${taskName ? `「${taskName}」` : '課題'}はどうかな？`,
+          `${fmtDate(new Date(`${gap.day}T00:00:00`))}の${formatGapTime(gap.start)}〜${formatGapTime(gap.end)}も空いているね。この時間に${taskName ? `「${taskName}」` : '課題'}を進める？`,
+          `予定を見たら${fmtDate(new Date(`${gap.day}T00:00:00`))} ${formatGapTime(gap.start)}〜${formatGapTime(gap.end)}が空いていたよ。ここなら取り組めそうかな？`
+        ])
+      : 'ほかに20分以上空いている時間は見つからなかったよ。今日の予定を確認してみようか？');
+  } else if (action === 'other-task') {
+    const alternative = getPriorityPlans().find(plan => plan.name !== taskName);
+    characterDialogue.step = 'other-task';
+    if (alternative) {
+      characterDialogue.taskName = alternative.name;
+      characterDialogue.mood = 'encouraging';
+      setCharacterMood('encouraging');
+      setCharacterMessage(pickCharacterPhrase([
+        `別の候補なら「${alternative.name}」があるよ。締切や予定を見ながら、こちらにする？`,
+        `「${alternative.name}」も進められそうだよ。空いている時間に少し取り組むのはどう？`,
+        `次の候補は「${alternative.name}」だよ。こっちの予定を考えてみようか？`
+      ]));
+    } else {
+      characterDialogue.step = 'today';
+      characterDialogue.mood = 'standard';
+      setCharacterMood('standard');
+      setCharacterMessage('ほかに未完了の課題はないみたい。今日の予定と空き時間を確認してみよう！');
+    }
+  } else if (action === 'today') {
+    characterDialogue.step = 'today';
+    characterDialogue.mood = 'standard';
+    setCharacterMood('standard');
+    setCharacterMessage(getScheduleSummary(today));
+  } else if (action === 'tomorrow') {
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    characterDialogue.step = 'today';
+    characterDialogue.mood = 'standard';
+    setCharacterMood('standard');
+    setCharacterMessage(getScheduleSummary(tomorrow));
+  } else if (action === 'deadline') {
+    const plan = getPriorityPlans()[0];
+    characterDialogue.step = plan ? 'deadline' : 'no-tasks';
+    if (plan) {
+      characterDialogue.taskName = plan.name;
+      characterDialogue.mood = 'encouraging';
+      setCharacterMood('encouraging');
+      setCharacterMessage(pickCharacterPhrase([
+        `締切が近いのは「${plan.name}」だよ。${fmtDate(new Date(`${plan.due}T00:00:00`))}までだから、空き時間に少しずつ進めよう！`,
+        `「${plan.name}」の締切は${fmtDate(new Date(`${plan.due}T00:00:00`))}。予定に組み込むなら、早めに少し始めるのがおすすめだよ。`,
+        `予定を立てるなら「${plan.name}」を先に進めておくと安心だね。締切は${fmtDate(new Date(`${plan.due}T00:00:00`))}だよ。`
+      ]));
+    } else {
+      characterDialogue.mood = 'standard';
+      setCharacterMood('standard');
+      setCharacterMessage('今は締切が近い未完了課題はないみたい。予定を確認して過ごし方を考えよう！');
+    }
+  } else if (action === 'rest') {
+    characterDialogue.step = 'rest';
+    characterDialogue.mood = 'resting';
+    setCharacterMood('resting');
+    setCharacterMessage(pickCharacterPhrase([
+      '今日はゆっくり過ごそう。明日の予定を先に確認しておく？',
+      '了解！今日は無理せず休もうね。明日の予定も一緒に見てみる？',
+      '休むのも大切だよ。明日の予定を確認して、安心して休もう！'
+    ]));
+  } else if (action === 'restart') {
+    characterDialogue.step = 'suggestion';
+    renderCharacterStation();
     return;
   }
+  renderCharacterChoices();
+}
 
-  const history = document.getElementById('characterChatHistory');
-  const reply = getCharacterConsultationReply(question);
-  history.innerHTML += `<div class="character-chat-entry user"><span class="character-chat-speaker">あなた</span>${escapeHTML(question)}</div><div class="character-chat-entry assistant"><span class="character-chat-speaker">TASKROU</span>${escapeHTML(reply)}</div>`;
-  history.scrollTop = history.scrollHeight;
-  input.value = '';
-  input.focus();
+['characterChoiceOne', 'characterChoiceTwo', 'characterChoiceThree'].forEach((id, index) => {
+  document.getElementById(id).addEventListener('click', event => {
+    chooseCharacterDialogue(getCharacterDialogueOptions()[index].action);
+  });
 });
 
 function startTwentyMinuteTask() {

@@ -14,7 +14,7 @@ const quickInputScript = fs.readFileSync(path.join(__dirname, '..', 'quick-input
 assert.match(html, /<script src="\.\/weekly-review\.js"><\/script>/, 'index.html must load the weekly review script');
 assert.match(html, /<script src="\.\/study-planning\.js"><\/script>/, 'index.html must load the study planning script');
 assert.match(html, /<script src="\.\/spare-time\.js"><\/script>/, 'index.html must load the spare-time suggestion script');
-assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261113-taskrou-choice-sync"><\/script>/, 'index.html must load the current dashboard enhancements');
+assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261114-taskrou-choice-dialogue"><\/script>/, 'index.html must load the current dashboard enhancements');
 assert.match(html, /<script src="\.\/quick-input\.js\?v=20261113-taskrou-chat-input"><\/script>/, 'index.html must load task image support');
 assert.ok(appScripts.length, 'index.html must contain the application script');
 
@@ -149,21 +149,58 @@ function createMemoryImageDatabase() {
   };
 }
 
-test('sample dates are relative to the current day', () => {
+test('new calendars start empty and show generic local-only profile information', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage);
+
+  assert.doesNotMatch(html, /佐藤 葵|経済学部 · 2年/);
+  assert.match(html, /このブラウザーに保存/);
+  assert.deepEqual(JSON.parse(app.run(`JSON.stringify({
+    fixed: data.fixed.length,
+    tasks: data.tasks.length,
+    sessions: data.sessions.length,
+    extras: data.extras.length
+  })`)), { fixed: 0, tasks: 0, sessions: 0, extras: 0 });
+  assert.equal(storage.has('smart-calendar-v1'), true);
+  assert.equal(app.document.getElementById('taskCount').textContent, 0);
+  assert.match(app.document.getElementById('taskList').innerHTML, /課題はすべて完了/);
+  assert.doesNotMatch(app.document.getElementById('calendarGrid').innerHTML, /ミクロ経済学|統計学|カフェのシフト/);
+});
+
+test('removes legacy demo records but preserves user-created calendar data', () => {
+  const storedData = {
+    fixed: [
+      { id: 'f1', name: 'ミクロ経済学', day: 1, start: '09:00', end: '10:30', type: 'class' },
+      { id: 'my-class', name: '自分の授業', day: 2, start: '10:00', end: '11:00', type: 'class' }
+    ],
+    tasks: [
+      { id: 't1', name: 'マーケティング論 レポート', due: '2026-10-05', hours: 3, remaining: 2, done: false },
+      { id: 'my-task', name: '自分の課題', due: '2026-10-05', hours: 1, remaining: 1, done: false }
+    ],
+    sessions: [
+      { id: 's1', taskId: 't1', name: 'マーケティング論 レポート', day: '2026-09-30', start: '14:00', end: '15:00', type: 'study', done: false },
+      { id: 'my-session', taskId: 'my-task', name: '自分の課題', day: '2026-09-30', start: '15:00', end: '16:00', type: 'study', done: false }
+    ],
+    extras: [{ id: 'my-event', name: '自分の予定', day: '2026-09-30', start: '12:00', end: '13:00', type: 'personal' }]
+  };
+  const storage = new Map([['smart-calendar-v1', JSON.stringify(storedData)]]);
+
+  createAppHarness(storage);
+
+  const migrated = JSON.parse(storage.get('smart-calendar-v1'));
+  assert.deepEqual(migrated.fixed.map(item => item.id), ['my-class']);
+  assert.deepEqual(migrated.tasks.map(task => task.id), ['my-task']);
+  assert.deepEqual(migrated.sessions.map(session => session.id), ['my-session']);
+  assert.deepEqual(migrated.extras, storedData.extras);
+});
+
+test('mini calendar dates reflect the current day', () => {
   assert.doesNotMatch(html, /class="brand-sub"/);
   assert.doesNotMatch(html, /class="crumb"/);
   assert.doesNotMatch(html, /class="free-badge"/);
   assert.doesNotMatch(html, /getElementById\('freeBadge'\)/);
 
   const app = createAppHarness();
-  const dates = JSON.parse(app.run(`JSON.stringify({
-    today: dateKey(today),
-    taskOffsets: data.tasks.map(task => Math.round((new Date(task.due + 'T00:00:00') - today) / 86400000)),
-    sessionOffsets: data.sessions.map(session => Math.round((new Date(session.day + 'T00:00:00') - today) / 86400000))
-  })`));
-
-  assert.deepEqual(dates.taskOffsets, [5, 2, 7]);
-  assert.deepEqual(dates.sessionOffsets, [0, 1, 2]);
   assert.match(app.document.querySelector('.mini-calendar .section-label').innerHTML, new RegExp(`${new Date().getFullYear()}&#x5E74; ${new Date().getMonth() + 1}&#x6708;`));
 });
 
@@ -376,6 +413,7 @@ test('migrates saved planner data from the legacy storage key', () => {
 
 test('running automatic scheduling repeatedly does not duplicate sessions', () => {
   const app = createAppHarness();
+  app.run(`data.tasks = [{ id: 'repeat-task', name: '繰り返し確認', due: dateKey(addDays(today, 3)), hours: 2, remaining: 2, done: false }]`);
   const counts = () => JSON.parse(app.run(`JSON.stringify(Object.fromEntries(data.tasks.map(task => [
     task.id,
     data.sessions.filter(session => session.taskId === task.id && !session.done).length
@@ -457,6 +495,7 @@ test('automatic scheduling reports insufficient free time before the deadline', 
 test('toggling a study session done and undone persists both states and restores remaining effort', () => {
   const storage = new Map();
   const app = createAppHarness(storage);
+  app.run(`data.tasks = [{ id: 'toggle-task', name: '完了確認', due: dateKey(addDays(today, 2)), hours: 1, remaining: 1, done: false }]; data.sessions = [{ id: 'toggle-session', taskId: 'toggle-task', name: '完了確認', day: dateKey(today), start: '14:00', end: '15:00', type: 'study', done: false }]`);
   const sessionId = app.run('data.sessions[0].id');
   const initial = app.run('data.tasks.find(item => item.id === data.sessions[0].taskId).remaining');
 
@@ -475,6 +514,9 @@ test('toggling a study session done and undone persists both states and restores
 test('rerouting preserves completed sessions and creates no duplicate active time', () => {
   const app = createAppHarness();
   const result = JSON.parse(app.run(`(() => {
+    data.fixed = [{ id: 'today-busy', name: '予定', day: today.getDay(), start: '07:00', end: '22:00', type: 'class' }];
+    data.tasks = [{ id: 'reroute-task', name: '振り替え確認', due: dateKey(addDays(today, 3)), hours: 2, remaining: 2, done: false }];
+    data.sessions = [];
     createSchedule();
     const session = data.sessions.find(item => item.day > dateKey(today) && !item.done);
     toggleSession(session.id);
@@ -843,7 +885,7 @@ test('spare-time duration and condition filters persist and change recommendatio
   assert.deepEqual(result.saved, { location: 'library', fatigue: 3, duration: 60, mode: 'focus' });
 });
 
-test('character station warns about overloaded days and responds to declining a suggestion', () => {
+test('character station warns about overloaded days and lets the user inspect plans before resting', () => {
   const storage = new Map();
   const app = createAppHarness(storage);
   const result = JSON.parse(app.run(`(() => {
@@ -851,6 +893,7 @@ test('character station warns about overloaded days and responds to declining a 
     data.fixed = [{ id: 'long-day', name: '予定', day: today.getDay(), start: '07:00', end: '21:00', type: 'class' }];
     data.tasks = [{ id: 'urgent', name: '明日期限', due: day, remaining: 5, done: false }];
     data.sessions = [];
+    getTodayCapacity = () => ({ isOverloaded: true, availableMinutes: 0, demandMinutes: 300 });
     renderCharacterStation();
     const overloaded = {
       markup: document.getElementById('characterAvatar').innerHTML,
@@ -858,7 +901,8 @@ test('character station warns about overloaded days and responds to declining a 
       message: document.getElementById('characterMessage').textContent,
       warningHidden: document.getElementById('capacityPanic').hidden
     };
-    document.getElementById('declineSuggestion').dispatch('click', {});
+    document.getElementById('characterChoiceOne').dispatch('click', {});
+    document.getElementById('characterChoiceThree').dispatch('click', {});
     const resting = {
       markup: document.getElementById('characterAvatar').innerHTML,
       label: document.getElementById('characterAvatar').getAttribute('aria-label'),
@@ -870,11 +914,11 @@ test('character station warns about overloaded days and responds to declining a 
 
   assert.match(result.overloaded.markup, /data-mood="concerned"/);
   assert.equal(result.overloaded.label, 'TASKROU、心配の表情');
-  assert.match(result.overloaded.message, /無理はしないで/);
+  assert.match(result.overloaded.message, /無理/);
   assert.equal(result.overloaded.warningHidden, false);
   assert.match(result.resting.markup, /data-mood="resting"/);
   assert.equal(result.resting.label, 'TASKROU、休息の表情');
-  assert.match(result.resting.message, /ひと休み/);
+  assert.match(result.resting.message, /休もう|休む|ゆっくり/);
   assert.deepEqual(result.resting.restDays, []);
 });
 
@@ -886,6 +930,7 @@ test('AI character is rendered as inline owl artwork with a mood-specific expres
     data.sessions = [];
     data.tasks = [{ id: 'priority', name: '小テスト対策', due: dateKey(addDays(today, 3)), hours: 2, remaining: 2, done: false }];
     data.plans = [];
+    getTodayCapacity = () => ({ isOverloaded: false, availableMinutes: 120, demandMinutes: 60 });
     renderCharacterStation();
     return JSON.stringify({
       markup: document.getElementById('characterAvatar').innerHTML,
@@ -921,6 +966,7 @@ test('completing a task activates the celebratory owl expression', () => {
     data.extras = [];
     data.sessions = [];
     data.tasks = [{ id: 'finished', name: '読書課題', due: dateKey(addDays(today, 2)), hours: 1, remaining: 0, done: true }];
+    getTodayCapacity = () => ({ isOverloaded: false, availableMinutes: 120, demandMinutes: 0 });
     celebrateTaskCompletion('finished');
     return document.getElementById('characterAvatar').innerHTML;
   })()`);
@@ -931,67 +977,54 @@ test('completing a task activates the celebratory owl expression', () => {
   assert.match(result, /owl-books/);
 });
 
-test('TASKROU suggestion choices reply with matching expressions without starting a timer', () => {
+test('TASKROU presents schedule-focused three-choice conversations without a text chat', () => {
   const app = createAppHarness();
   app.run(`data.fixed = []; data.extras = []; data.sessions = []; data.plans = []; data.tasks = [
     { id: 'stats', name: '統計レポート', due: dateKey(addDays(today, 2)), hours: 2, remaining: 1, done: false },
     { id: 'english', name: '英語資料', due: dateKey(addDays(today, 4)), hours: 1, remaining: 1, done: false }
-  ]; renderCharacterStation()`);
+  ]; data.fixed = [{ id: 'class-today', name: 'ゼミ', day: today.getDay(), start: '13:00', end: '14:30', type: 'class' }]; getTodayCapacity = () => ({ isOverloaded: false, availableMinutes: 120, demandMinutes: 60 }); renderCharacterStation()`);
 
   const suggestedTaskName = app.run('characterSuggestedTaskName');
   const alternativeName = app.run(`getPriorityPlans().find(plan => plan.name !== characterSuggestedTaskName).name`);
-  assert.match(dashboardEnhancementsScript, /id="acceptSuggestion">実行する<\/button>/);
-  assert.match(dashboardEnhancementsScript, /id="declineSuggestion">やめとく<\/button>/);
-  assert.match(dashboardEnhancementsScript, /id="chooseOtherTask">他のこと<\/button>/);
+  const nearestDeadlineName = app.run('getPriorityPlans()[0].name');
+  assert.match(dashboardEnhancementsScript, /タスクロウへの返答/);
+  assert.doesNotMatch(dashboardEnhancementsScript, /characterChatForm|characterChatInput|characterChatHistory/);
+  assert.equal(app.document.getElementById('characterChoiceOne').textContent, 'この時間に進める');
+  assert.equal(app.document.getElementById('characterChoiceTwo').textContent, '別の時間を探す');
+  assert.equal(app.document.getElementById('characterChoiceThree').textContent, '今日の予定を見る');
+  assert.match(app.document.getElementById('characterMessage').textContent, new RegExp(suggestedTaskName));
 
-  app.document.getElementById('chooseOtherTask').dispatch('click', {});
-  assert.equal(app.document.getElementById('characterAvatar').getAttribute('aria-label'), 'TASKROU、応援の表情');
-  assert.match(app.document.getElementById('characterMessage').textContent, new RegExp(alternativeName));
+  const acceptanceVariants = [0, 0.34, 0.67].map(randomValue => {
+    app.run(`Math.random = () => ${randomValue}; characterDialogue.step = 'suggestion'; renderCharacterStation()`);
+    app.document.getElementById('characterChoiceOne').dispatch('click', {});
+    return app.document.getElementById('characterMessage').textContent;
+  });
+  assert.equal(new Set(acceptanceVariants).size, 3);
 
-  app.document.getElementById('acceptSuggestion').dispatch('click', {});
+  app.run("characterDialogue.step = 'suggestion'; renderCharacterStation()");
+  app.document.getElementById('characterChoiceOne').dispatch('click', {});
   assert.equal(app.document.getElementById('characterAvatar').getAttribute('aria-label'), 'TASKROU、気合十分の表情');
-  assert.match(app.document.getElementById('characterAvatar').innerHTML, /data-mood="focused"/);
-  assert.match(app.document.getElementById('characterAvatar').innerHTML, /d="m52 56 18-5m58 5-18-5"/);
+  assert.match(app.document.getElementById('characterMessage').textContent, new RegExp(suggestedTaskName));
+  assert.equal(app.document.getElementById('characterChoiceThree').textContent, '別の課題を見る');
+  app.document.getElementById('characterChoiceThree').dispatch('click', {});
   assert.match(app.document.getElementById('characterMessage').textContent, new RegExp(alternativeName));
-  assert.doesNotMatch(app.document.getElementById('characterMessage').textContent, new RegExp(suggestedTaskName));
+
+  app.run("characterDialogue.step = 'suggestion'; renderCharacterStation()");
+  app.document.getElementById('characterChoiceThree').dispatch('click', {});
+  assert.match(app.document.getElementById('characterMessage').textContent, /ゼミ/);
+  assert.equal(app.document.getElementById('characterChoiceOne').textContent, '空き時間を探す');
+  assert.equal(app.document.getElementById('characterChoiceTwo').textContent, '締切が近い課題を見る');
+  assert.equal(app.document.getElementById('characterChoiceThree').textContent, '今日は休む');
+
+  app.document.getElementById('characterChoiceTwo').dispatch('click', {});
+  assert.match(app.document.getElementById('characterMessage').textContent, new RegExp(nearestDeadlineName));
+  assert.match(app.document.getElementById('characterMessage').textContent, /締切/);
+  assert.equal(app.document.getElementById('characterChoiceOne').textContent, 'この課題を進める');
+
+  app.document.getElementById('characterChoiceTwo').dispatch('click', {});
+  assert.match(app.document.getElementById('characterMessage').textContent, /空いて|空き時間/);
+  assert.equal(app.document.getElementById('characterChoiceOne').textContent, 'この時間がよさそう');
   assert.equal(app.run('data.activeTimer'), null);
-
-  app.document.getElementById('declineSuggestion').dispatch('click', {});
-  assert.equal(app.document.getElementById('characterAvatar').getAttribute('aria-label'), 'TASKROU、休息の表情');
-  assert.match(app.document.getElementById('characterAvatar').innerHTML, /data-mood="resting"/);
-  assert.match(app.document.getElementById('characterMessage').textContent, /ひと休み/);
-  assert.equal(app.run('JSON.stringify(data.restDays)'), '[]');
-});
-
-test('TASKROU consultation uses local task details and leaves empty submissions unanswered', () => {
-  const app = createAppHarness();
-  app.run(`data.plans = []; data.fixed = []; data.extras = []; data.sessions = []; data.tasks = [{
-    id: 'consult-task', name: '統計レポート', due: dateKey(addDays(today, 2)), hours: 2, remaining: 1, done: false
-  }]`);
-  const input = app.document.getElementById('characterChatInput');
-  const history = app.document.getElementById('characterChatHistory');
-  const form = app.document.getElementById('characterChatForm');
-  let prevented = false;
-
-  input.value = '統計レポートは何から始めればいい？';
-  form.dispatch('submit', { preventDefault() { prevented = true; } });
-
-  assert.equal(prevented, true);
-  assert.equal(input.value, '');
-  assert.match(history.innerHTML, /統計レポート/);
-  assert.match(history.innerHTML, /残りは約1時間/);
-  assert.match(history.innerHTML, /TASKROU/);
-  assert.doesNotMatch(quickInputScript, /クイック入力|quick-input-panel|quickTextInput/);
-
-  app.run('data.plans = []; data.tasks = []');
-  input.value = '今日何をすればいい？';
-  form.dispatch('submit', { preventDefault() {} });
-  assert.match(history.innerHTML, /未完了の課題はありません/);
-
-  const messageCount = (history.innerHTML.match(/character-chat-entry user/g) || []).length;
-  input.value = '   ';
-  form.dispatch('submit', { preventDefault() {} });
-  assert.equal((history.innerHTML.match(/character-chat-entry user/g) || []).length, messageCount);
 });
 
 test('task modal keeps local image attachments available without a quick-input panel', async () => {
@@ -1083,6 +1116,9 @@ test('calendar keeps its existing grid layout while marking AI tasks, progress, 
       progress: 0,
       scope: ''
     });
+    data.sessions.forEach(session => { session.day = due; });
+    selectCalendarDate(due);
+    renderCalendar();
     const calendar = document.getElementById('calendarGrid').innerHTML;
     toggleSession(data.sessions.find(session => session.taskId.startsWith(plan.id)).id);
     return JSON.stringify({
@@ -1149,7 +1185,7 @@ test('workspace task navigation opens the complete task list without opening the
   assert.match(list, /歴史学期末テスト · 直前確認/);
   assert.match(list, /テスト/);
   assert.match(list, /完了/);
-  assert.match(app.document.getElementById('taskOverviewSummary').textContent, /全4件/);
+  assert.match(app.document.getElementById('taskOverviewSummary').textContent, /全1件/);
   assert.equal(app.document.getElementById('modalBackdrop').classList.added.includes('open'), false);
   assert.ok(app.document.body.classList.added.includes('task-overview-active'));
 
@@ -1219,6 +1255,7 @@ test('opening a task in the list shows its saved plan details and lets the user 
 test('planning duration and actual session deviation persist for the selected week', () => {
   const storage = new Map();
   const app = createAppHarness(storage);
+  app.run(`data.sessions = [{ id: 'review-session', taskId: 'review-task', name: '復習', day: dateKey(today), start: '14:00', end: '15:00', type: 'study', done: false }]`);
   app.run('recordPlanningTime(42)');
   app.run(`recordSessionActual(data.sessions[0].id, '14:15', '15:10')`);
   const records = JSON.parse(storage.get('smart-calendar-v1'));
@@ -1235,6 +1272,7 @@ test('planning duration and actual session deviation persist for the selected we
 
 test('weekly review follows the selected calendar week and rejects invalid records', () => {
   const app = createAppHarness();
+  app.run(`data.sessions = [{ id: 'review-session', taskId: 'review-task', name: '復習', day: dateKey(today), start: '14:00', end: '15:00', type: 'study', done: false }]`);
   const accepted = app.run(`(() => {
     const saved = recordPlanningTime(25);
     const invalidDuration = recordPlanningTime(0);
