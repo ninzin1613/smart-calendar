@@ -9,22 +9,28 @@ smartInputForm.querySelector('.modal-head').insertAdjacentHTML('afterend', `
     <button class="entry-mode-tab" type="button" id="manualInputTab" role="tab" aria-selected="false">✏️ 自分で細かく設定</button>
   </div>
   <section class="smart-input-panel" id="smartInputPanel" aria-labelledby="smartInputTitle">
-    <h3 id="smartInputTitle">文章を貼り付けて予定を登録</h3>
-    <p>予定や締め切りを1行ずつ入力してください。解析はこのブラウザー内で行います。</p>
-    <textarea id="smartInputText" rows="4" placeholder="例：明日 18:00-22:00 バイト&#10;11/25までに英語レポート（重め）"></textarea>
-    <div class="smart-input-chips" aria-label="入力テンプレート">
-      <button type="button" data-smart-template="shift">＋ バイト 4h</button>
-      <button type="button" data-smart-template="class">＋ 授業 90m</button>
-      <button type="button" data-smart-template="task">＋ 課題 60m</button>
+    <div class="smart-input-entry" id="smartInputEntry">
+      <h3 id="smartInputTitle">文章から予定を作成</h3>
+      <p>予定や締め切りを1行ずつ入力してください。解析はこのブラウザー内で行います。</p>
+      <textarea id="smartInputText" rows="4" placeholder="例：明日 18:00-22:00 バイト&#10;11/25までに英語レポート（重め）"></textarea>
+      <div class="smart-input-chips" aria-label="入力テンプレート">
+        <button type="button" data-smart-template="shift">＋ バイト 4h</button>
+        <button type="button" data-smart-template="class">＋ 授業 90m</button>
+        <button type="button" data-smart-template="task">＋ 課題 60m</button>
+      </div>
+      <label class="smart-auto-schedule-label"><input id="smartAutoSchedule" type="checkbox" checked> 課題を登録したら学習計画も自動配置する</label>
+      <button class="primary-btn smart-input-submit" type="button" id="analyzeSmartInput">AIで解析して確認</button>
+      <div class="smart-input-status" id="smartInputStatus" role="status" aria-live="polite"></div>
+      <div class="smart-input-results" id="smartInputResults"></div>
     </div>
-    <label class="smart-auto-schedule-label"><input id="smartAutoSchedule" type="checkbox" checked> 課題を登録したら学習計画も自動配置する</label>
-    <button class="primary-btn smart-input-submit" type="button" id="analyzeSmartInput">AIで解析して追加</button>
-    <div class="smart-input-status" id="smartInputStatus" role="status" aria-live="polite"></div>
-    <div class="smart-input-results" id="smartInputResults"></div>
-    <section class="smart-input-confirmations" id="smartInputConfirmations" hidden>
-      <h4>確認が必要な入力</h4>
-      <p>未確定の項目だけ内容を確認して追加できます。</p>
-      <div id="smartInputPendingList"></div>
+    <section class="smart-input-review" id="smartInputReview" aria-labelledby="smartInputReviewTitle" hidden>
+      <h3 id="smartInputReviewTitle">AIが作成した内容の確認</h3>
+      <p id="smartInputReviewPrompt" role="status" aria-live="polite"></p>
+      <div id="smartInputReviewList"></div>
+      <div class="smart-input-review-actions">
+        <button class="secondary-btn" type="button" id="editSmartInput">文章を修正</button>
+        <button class="primary-btn" type="button" id="confirmSmartInput">この内容で追加</button>
+      </div>
     </section>
   </section>
 `);
@@ -39,7 +45,8 @@ smartInputStyle.textContent = `
 .smart-input-panel { display: none; }
 .modal.ai-entry-mode .smart-input-panel { display: block; }
 .smart-input-panel h3 { margin: 2px 0 5px; font-size: 13px; }
-.smart-input-panel > p, .smart-input-confirmations > p { margin: 0 0 9px; color: #828b81; font-size: 10px; line-height: 1.5; }
+.smart-input-entry[hidden], .smart-input-review[hidden] { display: none; }
+.smart-input-entry > p, .smart-input-review > p { margin: 0 0 9px; color: #828b81; font-size: 10px; line-height: 1.5; }
 .smart-input-panel textarea { width: 100%; min-height: 90px; padding: 10px; resize: vertical; border: 1px solid #dfe4da; border-radius: 7px; font: inherit; font-size: 11px; }
 .smart-input-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .smart-input-chips button { padding: 5px 8px; border: 1px solid #e2e8dd; border-radius: 14px; background: #f4f7f0; color: #526647; font-size: 9px; }
@@ -50,15 +57,14 @@ smartInputStyle.textContent = `
 .smart-input-results { display: grid; gap: 5px; margin-top: 5px; }
 .smart-input-result { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 6px; background: #f4f7f0; font-size: 10px; }
 .smart-input-result button { flex: 0 0 auto; padding: 4px 6px; border: 0; background: transparent; color: #557442; font-size: 9px; text-decoration: underline; }
-.smart-input-confirmations { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e9ece5; }
-.smart-input-confirmations[hidden] { display: none; }
-.smart-input-confirmations h4 { margin: 0 0 5px; font-size: 11px; }
+.smart-input-review { margin-top: 3px; }
 .smart-input-pending { margin: 8px 0; padding: 10px; border: 1px solid #e5e8df; border-radius: 8px; background: #fffefa; }
 .smart-input-pending-source { margin-bottom: 8px; color: #828b81; font-size: 9px; overflow-wrap: anywhere; }
+.smart-input-required { margin-bottom: 8px; color: #8a5a32; font-size: 9px; }
 .smart-input-pending label { display: block; margin: 5px 0; color: #626d5b; font-size: 9px; }
 .smart-input-pending input, .smart-input-pending select { width: 100%; min-height: 30px; margin-top: 3px; padding: 4px 6px; border: 1px solid #dfe4da; border-radius: 5px; font: inherit; font-size: 10px; }
 .smart-input-pending .smart-pending-row { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-.smart-input-pending .smart-pending-confirm { margin-top: 5px; }
+.smart-input-review-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
 .modal:not(.ai-entry-mode) .smart-input-panel { display: none; }
 @media (max-width: 560px) { .entry-mode-tab { font-size: 9px; } .smart-input-pending .smart-pending-row { grid-template-columns: 1fr; } }
 `;
@@ -67,11 +73,14 @@ document.head.appendChild(smartInputStyle);
 const smartInputTab = document.getElementById('smartInputTab');
 const manualInputTab = document.getElementById('manualInputTab');
 const smartInputPanel = document.getElementById('smartInputPanel');
+const smartInputEntry = document.getElementById('smartInputEntry');
 const smartInputText = document.getElementById('smartInputText');
 const smartInputStatus = document.getElementById('smartInputStatus');
 const smartInputResults = document.getElementById('smartInputResults');
-const smartInputConfirmations = document.getElementById('smartInputConfirmations');
-const smartInputPendingList = document.getElementById('smartInputPendingList');
+const smartInputReview = document.getElementById('smartInputReview');
+const smartInputReviewPrompt = document.getElementById('smartInputReviewPrompt');
+const smartInputReviewList = document.getElementById('smartInputReviewList');
+let smartInputReviewActive = false;
 document.getElementById('eventDuration').min = '0.25';
 document.getElementById('smartAutoSchedule').checked = true;
 
@@ -81,6 +90,8 @@ function setSmartInputMode(mode) {
   else smartInputForm.classList.remove('ai-entry-mode');
   smartInputTab.setAttribute('aria-selected', String(isAi));
   manualInputTab.setAttribute('aria-selected', String(!isAi));
+  smartInputEntry.hidden = smartInputReviewActive;
+  smartInputReview.hidden = !smartInputReviewActive;
 }
 
 smartInputTab.addEventListener('click', () => setSmartInputMode('ai'));
@@ -284,34 +295,96 @@ function renderSmartInputResults(entries) {
   }));
 }
 
+function getSmartInputMissingFields(candidate) {
+  const missing = [];
+  if (!String(candidate.name || '').trim()) missing.push('予定名');
+  if (candidate.kind === 'task') {
+    if (!candidate.date || candidate.date < dateKey(today)) missing.push('締め切り日');
+    if (!Number.isFinite(Number(candidate.hours)) || Number(candidate.hours) <= 0 || Number(candidate.hours) > 200) {
+      missing.push('必要な学習時間');
+    }
+    return missing;
+  }
+
+  if (candidate.repeat === 'weekly') {
+    if (!Number.isInteger(candidate.weekday) || candidate.weekday < 0 || candidate.weekday > 6) missing.push('曜日');
+  } else if (!candidate.date || candidate.date < dateKey(today)) {
+    missing.push('予定日');
+  }
+  if (!candidate.start) missing.push('開始時刻');
+  if (!candidate.end) missing.push('終了時刻');
+  if (candidate.start && candidate.end) {
+    const start = clockMinutes(candidate.start);
+    const end = clockMinutes(candidate.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) missing.push('終了時刻（開始より後）');
+  }
+  return missing;
+}
+
+function readSmartInputReviewCandidates() {
+  const rows = smartInputReviewList.querySelectorAll('.smart-input-pending');
+  if (!rows.length) return smartInputPending;
+  return Array.from(rows, (row, index) => {
+    const value = field => row.querySelector(`[data-smart-field="${field}"]`).value;
+    const weekday = value('weekday');
+    const hours = value('hours');
+    return {
+      ...smartInputPending[index],
+      kind: value('kind'),
+      name: value('name').trim(),
+      date: value('date'),
+      weekday: weekday === '' ? null : Number(weekday),
+      repeat: value('repeat'),
+      start: value('start'),
+      end: value('end'),
+      type: value('type'),
+      hours: hours === '' ? 0 : Number(hours)
+    };
+  });
+}
+
+function updateSmartInputReviewPrompt(candidates = readSmartInputReviewCandidates()) {
+  const rows = smartInputReviewList.querySelectorAll('.smart-input-pending');
+  const incomplete = candidates.some(candidate => getSmartInputMissingFields(candidate).length);
+  rows.forEach((row, index) => {
+    const missing = getSmartInputMissingFields(candidates[index] || {});
+    row.querySelector('.smart-input-required').textContent = missing.length
+      ? `必要事項：${missing.join('、')}`
+      : '内容を確認してください。';
+  });
+  smartInputReviewPrompt.textContent = incomplete
+    ? '情報が足りません。必要事項を記入してください。'
+    : '以下の内容で予定を追加していいですか？';
+}
+
 function renderSmartInputPending() {
-  smartInputConfirmations.hidden = !smartInputPending.length;
-  smartInputPendingList.innerHTML = smartInputPending.map((candidate, index) => {
+  smartInputReviewList.innerHTML = smartInputPending.map((candidate, index) => {
     const isTask = candidate.kind === 'task';
     const repeat = candidate.repeat || 'once';
     const dateLabel = isTask ? '締め切り日' : '予定日';
+    const missing = getSmartInputMissingFields(candidate);
     return `<article class="smart-input-pending" data-smart-pending="${index}">
       <div class="smart-input-pending-source">入力：${escapeHTML(candidate.original)}${candidate.reason ? ` · ${escapeHTML(candidate.reason)}` : ''}</div>
+      <div class="smart-input-required">${missing.length ? `必要事項：${escapeHTML(missing.join('、'))}` : '内容を確認してください。'}</div>
       <label>種類<select data-smart-field="kind"><option value="event"${isTask ? '' : ' selected'}>予定</option><option value="task"${isTask ? ' selected' : ''}>課題・テスト</option></select></label>
       <label>名前<input data-smart-field="name" maxlength="40" value="${escapeHTML(candidate.name)}"></label>
       <div class="smart-pending-row">
-        <label><span data-smart-date-label>${dateLabel}</span><input data-smart-field="date" type="date" min="${dateKey(today)}" value="${escapeHTML(candidate.date || '')}"></label>
+        <label data-smart-date-field><span data-smart-date-label>${dateLabel}</span><input data-smart-field="date" type="date" min="${dateKey(today)}" value="${escapeHTML(candidate.date || '')}"></label>
         <label data-smart-event-field>繰り返し<select data-smart-field="repeat"><option value="once"${repeat === 'once' ? ' selected' : ''}>1回のみ</option><option value="weekly"${repeat === 'weekly' ? ' selected' : ''}>毎週</option></select></label>
       </div>
-      <label data-smart-weekday-field>曜日<select data-smart-field="weekday">${['日','月','火','水','木','金','土'].map((day, weekday) => `<option value="${weekday}"${Number(candidate.weekday) === weekday ? ' selected' : ''}>${day}曜日</option>`).join('')}</select></label>
+      <label data-smart-weekday-field>曜日<select data-smart-field="weekday"><option value=""${candidate.weekday == null ? ' selected' : ''}>曜日を選択</option>${['日','月','火','水','木','金','土'].map((day, weekday) => `<option value="${weekday}"${Number(candidate.weekday) === weekday ? ' selected' : ''}>${day}曜日</option>`).join('')}</select></label>
       <div class="smart-pending-row" data-smart-event-field>
-        <label>開始<input data-smart-field="start" type="time" value="${escapeHTML(candidate.start || '13:00')}"></label>
-        <label>終了<input data-smart-field="end" type="time" value="${escapeHTML(candidate.end || '14:00')}"></label>
+        <label>開始<input data-smart-field="start" type="time" value="${escapeHTML(candidate.start || '')}"></label>
+        <label>終了<input data-smart-field="end" type="time" value="${escapeHTML(candidate.end || '')}"></label>
       </div>
       <div class="smart-pending-row" data-smart-event-field>
         <label>種類<select data-smart-field="type"><option value="class"${candidate.type === 'class' ? ' selected' : ''}>授業</option><option value="work"${candidate.type === 'work' ? ' selected' : ''}>アルバイト</option><option value="personal"${candidate.type === 'personal' ? ' selected' : ''}>個人予定</option></select></label>
       </div>
-      <label data-smart-task-field>学習時間（時間）<input data-smart-field="hours" type="number" min="0.5" max="200" step="0.5" value="${candidate.hours || 1}"></label>
-      <button class="primary-btn smart-pending-confirm" type="button" data-smart-confirm="${index}">確認して追加</button>
+      <label data-smart-task-field>学習時間（時間）<input data-smart-field="hours" type="number" min="0.5" max="200" step="0.5" value="${candidate.hours || ''}"></label>
     </article>`;
   }).join('');
 
-  smartInputPendingList.querySelectorAll('.smart-input-pending').forEach(row => {
+  smartInputReviewList.querySelectorAll('.smart-input-pending').forEach(row => {
     const kind = row.querySelector('[data-smart-field="kind"]');
     const repeat = row.querySelector('[data-smart-field="repeat"]');
     const sync = () => {
@@ -320,61 +393,74 @@ function renderSmartInputPending() {
       row.querySelectorAll('[data-smart-task-field]').forEach(field => { field.hidden = !isTask; });
       row.querySelector('[data-smart-date-label]').textContent = isTask ? '締め切り日' : '予定日';
       row.querySelector('[data-smart-weekday-field]').hidden = isTask || repeat.value !== 'weekly';
-      row.querySelector('[data-smart-field="date"]').parentElement.hidden = !isTask && repeat.value === 'weekly';
+      row.querySelector('[data-smart-date-field]').hidden = !isTask && repeat.value === 'weekly';
     };
     kind.addEventListener('change', sync);
     repeat.addEventListener('change', sync);
     sync();
-  });
-  smartInputPendingList.querySelectorAll('[data-smart-confirm]').forEach(button => button.addEventListener('click', () => {
-    const index = Number(button.dataset.smartConfirm);
-    const row = button.closest('.smart-input-pending');
-    confirmSmartInputCandidate(index, {
-      kind: row.querySelector('[data-smart-field="kind"]').value,
-      name: row.querySelector('[data-smart-field="name"]').value.trim(),
-      date: row.querySelector('[data-smart-field="date"]').value,
-      weekday: Number(row.querySelector('[data-smart-field="weekday"]').value),
-      repeat: row.querySelector('[data-smart-field="repeat"]').value,
-      start: row.querySelector('[data-smart-field="start"]').value,
-      end: row.querySelector('[data-smart-field="end"]').value,
-      type: row.querySelector('[data-smart-field="type"]').value,
-      hours: Number(row.querySelector('[data-smart-field="hours"]').value)
+    row.querySelectorAll('[data-smart-field]').forEach(field => {
+      field.addEventListener('input', () => updateSmartInputReviewPrompt());
+      field.addEventListener('change', () => updateSmartInputReviewPrompt());
     });
-  }));
+  });
+  updateSmartInputReviewPrompt(smartInputPending);
 }
 
-function confirmSmartInputCandidate(index, candidate) {
-  if (!candidate.name) return showToast('名前を入力してください');
-  if (candidate.kind === 'task') {
-    if (!candidate.date || candidate.date < dateKey(today) || !Number.isFinite(candidate.hours) || candidate.hours <= 0) return showToast('課題名、締め切り、学習時間を確認してください');
-  } else if (candidate.repeat === 'weekly') {
-    if (!Number.isInteger(candidate.weekday) || candidate.weekday < 0 || candidate.weekday > 6) return showToast('曜日を選択してください');
-    candidate.date = '';
-  } else if (!candidate.date || candidate.date < dateKey(today) || !candidate.start || clockMinutes(candidate.end) <= clockMinutes(candidate.start)) {
-    return showToast('予定日と開始・終了時刻を確認してください');
+function confirmSmartInputReview(candidates = readSmartInputReviewCandidates()) {
+  if (!candidates.length) return false;
+  const missing = candidates.some(candidate => getSmartInputMissingFields(candidate).length);
+  smartInputPending.splice(0, smartInputPending.length, ...candidates);
+  if (missing) {
+    renderSmartInputPending();
+    return false;
   }
-  const entry = commitSmartInputEntry(candidate);
-  smartInputPending.splice(index, 1);
-  finishSmartInputEntries([entry], document.getElementById('smartAutoSchedule').checked);
-  smartInputStatus.textContent = '確認した項目を追加しました。';
-  renderSmartInputPending();
-  return entry;
+
+  const entries = candidates.map(candidate => {
+    if (candidate.kind === 'event' && candidate.repeat === 'weekly') candidate.date = '';
+    return commitSmartInputEntry(candidate);
+  });
+  smartInputPending.length = 0;
+  smartInputReviewActive = false;
+  smartInputReview.hidden = true;
+  smartInputEntry.hidden = false;
+  smartInputText.value = '';
+  finishSmartInputEntries(entries, document.getElementById('smartAutoSchedule').checked);
+  smartInputStatus.textContent = `${entries.length}件を追加しました。`;
+  return entries;
 }
 
 function analyzeSmartInput() {
   const candidates = parseSmartInput(smartInputText.value);
-  const ready = candidates.filter(candidate => candidate.ready);
-  const unresolved = candidates.filter(candidate => !candidate.ready);
-  const entries = ready.map(commitSmartInputEntry);
-  smartInputPending.push(...unresolved);
-  if (entries.length) finishSmartInputEntries(entries, document.getElementById('smartAutoSchedule').checked);
-  else smartInputResults.innerHTML = '';
+  if (!candidates.length) {
+    candidates.push({
+      original: '',
+      kind: 'event',
+      name: '',
+      date: '',
+      weekday: null,
+      repeat: 'once',
+      type: 'personal',
+      start: '',
+      end: '',
+      hours: 0,
+      reason: '予定の内容を入力してください'
+    });
+  }
+  smartInputPending.splice(0, smartInputPending.length, ...candidates);
+  smartInputReviewActive = true;
+  smartInputEntry.hidden = true;
+  smartInputReview.hidden = false;
   renderSmartInputPending();
-  smartInputStatus.textContent = `${entries.length}件を追加しました。${unresolved.length}件は確認が必要です。`;
-  if (!candidates.length) smartInputStatus.textContent = '予定や課題を1行以上入力してください。';
 }
 
 document.getElementById('analyzeSmartInput').addEventListener('click', analyzeSmartInput);
+document.getElementById('confirmSmartInput').addEventListener('click', () => confirmSmartInputReview());
+document.getElementById('editSmartInput').addEventListener('click', () => {
+  smartInputReviewActive = false;
+  smartInputReview.hidden = true;
+  smartInputEntry.hidden = false;
+  smartInputText.focus();
+});
 const smartInputTemplates = {
   shift: () => `明日 18:00-22:00 バイト`,
   class: () => `毎週月曜 09:00-10:30 授業`,
@@ -534,8 +620,19 @@ function handleSmartManualEdit(event) {
 
 document.getElementById('closeModal').addEventListener('click', () => { smartInputEditTarget = null; });
 document.getElementById('cancelModal').addEventListener('click', () => { smartInputEditTarget = null; });
+function resetSmartInputReview() {
+  smartInputPending.length = 0;
+  smartInputReviewActive = false;
+  smartInputEntry.hidden = false;
+  smartInputReview.hidden = true;
+  smartInputText.value = '';
+  smartInputStatus.textContent = '';
+  smartInputResults.innerHTML = '';
+}
+
 const openModalWithSmartInput = openModal;
 openModal = (...args) => {
+  resetSmartInputReview();
   setSmartInputMode('ai');
   openModalWithSmartInput(...args);
 };

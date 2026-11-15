@@ -17,7 +17,7 @@ assert.match(html, /<script src="\.\/study-planning\.js"><\/script>/, 'index.htm
 assert.match(html, /<script src="\.\/spare-time\.js"><\/script>/, 'index.html must load the spare-time suggestion script');
 assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261114-taskrou-choice-dialogue"><\/script>/, 'index.html must load the current dashboard enhancements');
 assert.match(html, /<script src="\.\/quick-input\.js\?v=20261113-taskrou-chat-input"><\/script>/, 'index.html must load task image support');
-assert.match(html, /<script src="\.\/smart-input\.js\?v=20261115-smart-input-planning"><\/script>/, 'index.html must load local smart input');
+assert.match(html, /<script src="\.\/smart-input\.js\?v=20261115-smart-input-confirmation"><\/script>/, 'index.html must load local smart input');
 assert.ok(appScripts.length, 'index.html must contain the application script');
 
 function createAppHarness(values = new Map(), browserFeatures = {}) {
@@ -675,7 +675,7 @@ test('scheduling fills multiple open study slots for one task in a day', () => {
   assert.deepEqual(result.sessions, [['08:00', '09:00'], ['09:00', '10:00']]);
 });
 
-test('local parser registers clear rows and leaves ambiguous rows for confirmation', () => {
+test('local parser stages clear rows and leaves ambiguous rows for confirmation', () => {
   const storage = new Map();
   const app = createAppHarness(storage, { Date: createFixedDate(12) });
   const taskDate = app.run('addDays(today, 5)');
@@ -700,11 +700,21 @@ test('local parser registers clear rows and leaves ambiguous rows for confirmati
   app.document.getElementById('smartInputText').value = `${text.split('\n')[0]}\n明日 バイト`;
   app.document.getElementById('analyzeSmartInput').dispatch('click', {});
   const saved = JSON.parse(storage.get('smart-calendar-v1'));
-  assert.equal(saved.extras.length, 1);
-  assert.equal(saved.extras[0].type, 'work');
-  assert.equal(app.run('smartInputPending.length'), 1);
-  assert.match(app.document.getElementById('smartInputStatus').textContent, /1件を追加しました。1件は確認が必要/);
+  assert.equal(saved.extras.length, 0);
+  assert.equal(app.run('smartInputPending.length'), 2);
+  assert.equal(app.document.getElementById('smartInputEntry').hidden, true);
+  assert.equal(app.document.getElementById('smartInputReview').hidden, false);
+  assert.equal(app.document.getElementById('smartInputReviewPrompt').textContent, '情報が足りません。必要事項を記入してください。');
+  assert.match(app.document.getElementById('smartInputReviewList').innerHTML, /data-smart-field="start" type="time" value=""/);
 
+  app.run(`smartInputPending[1].start = '19:00'; smartInputPending[1].end = '22:00'; confirmSmartInputReview()`);
+  const confirmed = JSON.parse(storage.get('smart-calendar-v1'));
+  assert.equal(confirmed.extras.length, 2);
+  assert.equal(confirmed.extras[0].type, 'work');
+  assert.equal(app.run('smartInputPending.length'), 0);
+  assert.equal(app.document.getElementById('smartInputStatus').textContent, '2件を追加しました。');
+
+  const editedEntryId = app.run('smartInputLastEntries[0].id');
   app.run('openSmartEntryEditor(smartInputLastEntries[0])');
   assert.equal(app.document.getElementById('eventName').value, 'バイト');
   assert.equal(app.document.getElementById('manualInputTab').getAttribute('aria-selected'), 'true');
@@ -722,7 +732,39 @@ test('local parser registers clear rows and leaves ambiguous rows for confirmati
     preventDefault() {},
     stopImmediatePropagation() {}
   })`);
-  assert.equal(JSON.parse(storage.get('smart-calendar-v1')).extras[0].name, 'シフト変更');
+  const edited = JSON.parse(storage.get('smart-calendar-v1')).extras.find(entry => entry.id === editedEntryId);
+  assert.equal(edited.name, 'シフト変更');
+});
+
+test('AI schedule confirmation requires approval before adding a complete event', () => {
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+  app.document.getElementById('smartInputText').value = '明日 18:00-22:00 バイト';
+  app.document.getElementById('analyzeSmartInput').dispatch('click', {});
+
+  assert.equal(app.run('data.extras.length'), 0);
+  assert.equal(app.document.getElementById('smartInputReviewPrompt').textContent, '以下の内容で予定を追加していいですか？');
+  assert.match(app.document.getElementById('smartInputReviewList').innerHTML, /value="バイト"/);
+  assert.match(app.document.getElementById('smartInputReviewList').innerHTML, /value="18:00"/);
+  app.document.getElementById('confirmSmartInput').dispatch('click', {});
+
+  assert.equal(app.run('data.extras.length'), 1);
+  assert.equal(app.run('data.extras[0].name'), 'バイト');
+  assert.equal(app.document.getElementById('smartInputReview').hidden, true);
+});
+
+test('AI schedule review asks for required information before saving a blank entry', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage, { Date: createFixedDate(12) });
+  const beforeReview = storage.get('smart-calendar-v1');
+  app.document.getElementById('analyzeSmartInput').dispatch('click', {});
+
+  assert.equal(app.document.getElementById('smartInputEntry').hidden, true);
+  assert.equal(app.document.getElementById('smartInputReview').hidden, false);
+  assert.equal(app.document.getElementById('smartInputReviewPrompt').textContent, '情報が足りません。必要事項を記入してください。');
+  assert.match(app.document.getElementById('smartInputReviewList').innerHTML, /予定名、予定日、開始時刻、終了時刻/);
+  assert.equal(app.run('confirmSmartInputReview()'), false);
+  assert.equal(app.run('data.extras.length'), 0);
+  assert.equal(storage.get('smart-calendar-v1'), beforeReview);
 });
 
 test('confirming an ambiguous task creates a plan and 45-to-60-minute study blocks', () => {
@@ -730,16 +772,17 @@ test('confirming an ambiguous task creates a plan and 45-to-60-minute study bloc
   const app = createAppHarness(storage, { Date: createFixedDate(12) });
   app.document.getElementById('smartInputText').value = '明日までに 英語課題';
   app.document.getElementById('analyzeSmartInput').dispatch('click', {});
-  const due = app.run('dateKey(addDays(today, 2))');
-  const confirmed = app.run(`confirmSmartInputCandidate(0, ${JSON.stringify({
-    kind: 'task',
-    name: '英語課題',
-    date: due,
-    hours: 0.5
-  })})`);
+  const due = app.run('dateKey(addDays(today, 1))');
+  assert.equal(JSON.parse(storage.get('smart-calendar-v1')).tasks.length, 0);
+  const confirmed = app.run(`(() => {
+    smartInputPending[0].name = '英語課題';
+    smartInputPending[0].date = '${due}';
+    smartInputPending[0].hours = 0.5;
+    return confirmSmartInputReview();
+  })()`);
   const saved = JSON.parse(storage.get('smart-calendar-v1'));
 
-  assert.equal(confirmed.source, 'task');
+  assert.equal(confirmed[0].source, 'task');
   assert.equal(saved.tasks[0].due, due);
   assert.equal(saved.plans[0].name, '英語課題');
   assert.equal(saved.sessions.length, 1);
