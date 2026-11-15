@@ -1,5 +1,5 @@
 {
-  "name": "michi-calendar",
+  "name": "smart-calendar",
   "private": true,
   "scripts": {
     "test": "node --test"

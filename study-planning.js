@@ -1,4 +1,9 @@
 data.plans = data.plans || [];
+for (const session of data.sessions) {
+  if (typeof session.id === 'string' && /^s\d/.test(session.id) && session.aiGenerated === undefined) {
+    session.aiGenerated = true;
+  }
+}
 
 document.getElementById('durationField').insertAdjacentHTML('afterend', `
   <div class="field full study-field" id="studyTypeField" hidden>
@@ -27,6 +32,9 @@ document.getElementById('durationField').insertAdjacentHTML('afterend', `
     <label for="studyScope">テスト範囲</label>
     <input id="studyScope" name="studyScope" maxlength="120" placeholder="例：教科書 p.50〜100、講義 第1〜5回">
   </div>
+  <div class="field full study-field" id="studyAutoScheduleField" hidden>
+    <label class="study-auto-schedule-label"><input id="studyAutoSchedule" type="checkbox" checked> AIに学習計画も立ててもらう</label>
+  </div>
   <div class="field study-field" id="courseCreditsField" hidden>
     <label for="courseCredits">単位数（重み）</label>
     <input id="courseCredits" name="courseCredits" type="number" min="0.5" max="30" step="0.5" value="1">
@@ -43,6 +51,9 @@ const studyWorkload = document.getElementById('studyWorkload');
 const studyDifficulty = document.getElementById('studyDifficulty');
 const studyScopeField = document.getElementById('studyScopeField');
 const studyScope = document.getElementById('studyScope');
+const studyAutoScheduleField = document.getElementById('studyAutoScheduleField');
+const studyAutoSchedule = document.getElementById('studyAutoSchedule');
+studyAutoSchedule.checked = true;
 const studyEstimateNote = document.getElementById('studyEstimateNote');
 
 document.querySelector('.below-calendar').insertAdjacentHTML('beforebegin', `
@@ -61,6 +72,8 @@ const studyStyle = document.createElement('style');
 studyStyle.textContent = `
 .study-field[hidden], .priority-panel[hidden] { display: none; }
 .study-field input, .study-field select { width: 100%; }
+.study-auto-schedule-label { display: flex; align-items: center; gap: 8px; }
+.study-auto-schedule-label input { width: auto; }
 .priority-panel { margin: 0 0 16px; padding: 14px 16px; border: 1px solid #e4ebf4; border-radius: 9px; background: #fffefa; }
 .priority-heading { display: flex; justify-content: space-between; align-items: center; }
 .priority-note { margin-top: 4px; color: #828b81; font-size: 10px; }
@@ -115,7 +128,7 @@ function updateStudyEstimate() {
 function syncStudyFields() {
   const isTask = eventTypeSelect.value === 'task';
   const kind = studyType.value;
-  for (const id of ['studyTypeField', 'studyWorkloadField', 'studyDifficultyField', 'courseCreditsField', 'studyProgressField', 'studyEstimateNote']) {
+  for (const id of ['studyTypeField', 'studyWorkloadField', 'studyDifficultyField', 'courseCreditsField', 'studyProgressField', 'studyAutoScheduleField', 'studyEstimateNote']) {
     document.getElementById(id).hidden = !isTask;
   }
   studyScopeField.hidden = !isTask || kind !== 'exam';
@@ -199,7 +212,7 @@ function renderPlannedTasks() {
   if (typeof renderCapacityWarning === 'function') renderCapacityWarning();
 }
 
-function createStudyPlan({ name, kind, due, workload, difficulty, hours, credits, progress, scope }) {
+function createStudyPlan({ name, kind, due, workload, difficulty, hours, credits, progress, scope, autoSchedule = true }) {
   const totalHours = Number(hours);
   if (!name || !['report', 'reading', 'exam'].includes(kind) || !due || due < dateKey(today)
       || !Number.isFinite(totalHours) || totalHours <= 0 || totalHours > 200
@@ -212,7 +225,7 @@ function createStudyPlan({ name, kind, due, workload, difficulty, hours, credits
   }
 
   const planId = `p${Date.now()}${Math.random().toString(16).slice(2, 6)}`;
-  const phases = kind === 'report'
+  let phases = kind === 'report'
     ? [{ name: '調査・構成', share: 0.25 }, { name: '執筆', share: 0.55 }, { name: '推敲', share: 0.2 }]
     : kind === 'reading'
       ? [{ name: '読解', share: 0.7 }, { name: '要点整理・確認', share: 0.3 }]
@@ -238,12 +251,23 @@ function createStudyPlan({ name, kind, due, workload, difficulty, hours, credits
   data.plans.push(plan);
 
   const totalMinutes = Math.round(totalHours * 60);
+  if (kind !== 'exam' && phases.length > 1 && totalMinutes < 135) {
+    phases = [{ name: kind === 'report' ? 'レポート作成' : kind === 'reading' ? '読解・整理' : '範囲確認・復習', share: 1 }];
+  }
   const phaseMinutes = phases.map(phase => Math.floor(totalMinutes * phase.share));
   let unassignedMinutes = totalMinutes - phaseMinutes.reduce((sum, minutes) => sum + minutes, 0);
   const fractionalMinutes = phases
     .map((phase, index) => ({ index, fraction: totalMinutes * phase.share - phaseMinutes[index] }))
     .sort((left, right) => right.fraction - left.fraction || left.index - right.index);
   for (let index = 0; index < unassignedMinutes; index++) phaseMinutes[fractionalMinutes[index].index]++;
+  if (phaseMinutes.length === 3 && phaseMinutes.some(minutes => minutes < 45)) {
+    phaseMinutes[0] = 45;
+    phaseMinutes[2] = 45;
+    phaseMinutes[1] = totalMinutes - 90;
+  } else if (phaseMinutes.length === 2 && phaseMinutes.some(minutes => minutes < 45)) {
+    phaseMinutes[0] = 45;
+    phaseMinutes[1] = totalMinutes - 45;
+  }
 
   let completedMinutes = Math.round(totalMinutes * Number(progress) / 100);
   phases.forEach((phase, index) => {
@@ -265,12 +289,22 @@ function createStudyPlan({ name, kind, due, workload, difficulty, hours, credits
       done: remaining === 0
     });
   });
-  createSchedule();
+  if (autoSchedule) createSchedule();
+  else {
+    save();
+    renderCalendar();
+    renderTasks();
+    showToast('課題を登録しました。学習計画は後から作成できます');
+  }
   return plan;
 }
 
-function createStudySchedule({ reroute = false } = {}) {
-  if (reroute) data.sessions = data.sessions.filter(session => session.done || session.day < dateKey(today));
+function createStudySchedule({ reroute = false, fromDate = dateKey(today) } = {}) {
+  const todayKey = dateKey(today);
+  const startKey = fromDate < todayKey ? todayKey : fromDate;
+  if (reroute) {
+    data.sessions = data.sessions.filter(session => !session.aiGenerated || session.done || session.day < startKey);
+  }
   const pending = data.tasks
     .filter(task => !task.done && task.remaining > 0)
     .sort((left, right) => {
@@ -284,28 +318,46 @@ function createStudySchedule({ reroute = false } = {}) {
 
   for (const task of pending) {
     const scheduled = data.sessions
-      .filter(session => session.taskId === task.id && !session.done && session.day >= dateKey(today))
-      .reduce((sum, session) => sum + durationHours(session.start, session.end), 0);
+      .filter(session => session.taskId === task.id && !session.done && session.day >= todayKey)
+      .reduce((sum, session) => sum + (Number.isFinite(session.allocatedHours) ? session.allocatedHours : durationHours(session.start, session.end)), 0);
     let remaining = Math.max(0, task.remaining - scheduled);
-    const deadline = new Date(`${task.due}T00:00:00`);
-    for (let date = new Date(today); date <= deadline && remaining > 0; date = addDays(date, 1)) {
+    const deadline = addDays(new Date(`${task.due}T00:00:00`), -1);
+    const pinnedDate = !reroute && task.scheduleOnDate && task.scheduleOnDate >= startKey
+      ? task.scheduleOnDate
+      : null;
+    for (let date = new Date(`${startKey}T00:00:00`); date <= deadline && remaining > 0; date = addDays(date, 1)) {
       const day = dateKey(date);
-      if (task.scheduleOnDate && task.scheduleOnDate !== day) continue;
+      if (pinnedDate && pinnedDate !== day) continue;
+      let aiSessionsToday = data.sessions.filter(session => session.aiGenerated && session.day === day).length;
+      if (aiSessionsToday >= 2) continue;
       const blocks = getBlocks(date)
         .map(item => ({ start: clockMinutes(item.start), end: clockMinutes(item.end) }))
         .sort((left, right) => left.start - right.start);
-      let cursor = 540;
+      let cursor = 480;
+      if (day === todayKey) {
+        const now = new Date();
+        cursor = Math.max(cursor, now.getHours() * 60 + now.getMinutes());
+      }
       const available = [];
       for (const block of blocks) {
-        if (block.start - cursor >= 60) available.push([cursor, block.start]);
+        if (block.start - cursor >= 45) available.push([cursor, block.start]);
         cursor = Math.max(cursor, block.end);
       }
-      if (1320 - cursor >= 60) available.push([cursor, 1320]);
+      if (1380 - cursor >= 45) available.push([cursor, 1380]);
       for (const [start, end] of available) {
+        if (aiSessionsToday >= 2) break;
+        if (end - start < 45) continue;
         let slotStart = start;
-        while (end - slotStart >= 15 && remaining * 60 >= 15) {
-          const length = Math.floor(Math.min(60, remaining * 60, end - slotStart));
-          if (length < 15) break;
+        while (end - slotStart >= 45 && remaining > 0 && aiSessionsToday < 2) {
+          const remainingMinutes = remaining * 60;
+          let length = Math.min(60, remainingMinutes, end - slotStart);
+          if (remainingMinutes < 45) length = 45;
+          else if (remainingMinutes > 60 && remainingMinutes < 90) length = 45;
+          else if (remainingMinutes >= 90 && remainingMinutes - length < 45 && remainingMinutes - 45 <= end - slotStart) {
+            length = remainingMinutes - 45;
+          }
+          if (length < 45) break;
+          const allocatedHours = Math.min(length, remainingMinutes) / 60;
           const startText = `${String(Math.floor(slotStart / 60)).padStart(2, '0')}:${String(slotStart % 60).padStart(2, '0')}`;
           const endMinute = slotStart + length;
           const endText = `${String(Math.floor(endMinute / 60)).padStart(2, '0')}:${String(endMinute % 60).padStart(2, '0')}`;
@@ -317,10 +369,13 @@ function createStudySchedule({ reroute = false } = {}) {
             start: startText,
             end: endText,
             type: 'study',
-            done: false
+            done: false,
+            aiGenerated: true,
+            allocatedHours
           });
-          remaining -= length / 60;
+          remaining -= allocatedHours;
           placed++;
+          aiSessionsToday++;
           slotStart += length;
         }
       }
@@ -333,8 +388,19 @@ function createStudySchedule({ reroute = false } = {}) {
   renderCalendar();
   renderTasks();
   showToast(missed
-    ? `${placed}コマを配置。${missed}件は空き時間が足りません`
+    ? `${placed}コマを配置。${missed}件は締め切り前の空き時間が足りません`
     : `${placed}コマを空き時間に配置しました`);
+}
+
+function deferTodaysAiStudyBlocks() {
+  const todayKey = dateKey(today);
+  const tomorrowKey = dateKey(addDays(today, 1));
+  const deferred = data.sessions.filter(session => session.aiGenerated && !session.done && session.day === todayKey).length;
+  data.sessions = data.sessions.filter(session => !session.aiGenerated || session.done || session.day !== todayKey);
+  data.restDays = [...new Set([...(data.restDays || []), todayKey])];
+  createSchedule({ fromDate: tomorrowKey });
+  showToast(deferred ? `${deferred}件の学習枠を明日以降に繰り越しました` : '今日は休息日にしました');
+  return deferred;
 }
 
 eventTypeSelect.addEventListener('change', syncStudyFields);
@@ -348,6 +414,7 @@ for (const element of [studyWorkload, studyDifficulty]) element.addEventListener
 for (const id of ['tasksNav', 'allTasks']) document.getElementById(id).addEventListener('click', syncStudyFields);
 
 document.getElementById('eventForm').addEventListener('submit', event => {
+  if (typeof handleSmartManualEdit === 'function' && handleSmartManualEdit(event)) return;
   if (eventTypeSelect.value !== 'task') return;
   event.preventDefault();
   event.stopImmediatePropagation();
@@ -370,7 +437,7 @@ document.getElementById('eventForm').addEventListener('submit', event => {
     showToast('課題量、難易度、期限、学習時間、単位数、進捗を確認してください');
     return;
   }
-  createStudyPlan({ name, kind, due, workload, difficulty, hours, credits, progress, scope });
+  createStudyPlan({ name, kind, due, workload, difficulty, hours, credits, progress, scope, autoSchedule: studyAutoSchedule.checked });
   closeModal();
   event.currentTarget.reset();
   eventTypeSelect.value = 'class';

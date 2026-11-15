@@ -12,12 +12,20 @@ document.querySelector('.calendar-shell').insertAdjacentHTML('beforebegin', `
     <div class="character-message">
       <div class="character-title" id="characterStationTitle"><span class="character-brand">TASKROU · AI STUDY COMPANION</span><span>今日のひとこと</span></div>
       <div class="character-bubble" id="characterMessage" role="status" aria-live="polite"></div>
-      <div class="character-actions" id="characterChoices" role="group" aria-label="タスクロウへの返答" aria-live="polite">
+      <div class="character-actions character-plan-actions" role="group" aria-label="学習計画">
+        <button class="primary-btn" type="button" id="recalculateStudyPlan">計画を再計算（予定がずれた）</button>
+        <button class="secondary-btn" type="button" id="restToday">今日は休む</button>
+      </div>
+      <div class="character-actions" id="characterChoices" role="group" aria-label="タスクロウへの返答" aria-live="polite" hidden>
         <button class="primary-btn" type="button" id="characterChoiceOne"></button>
         <button class="secondary-btn" type="button" id="characterChoiceTwo"></button>
         <button class="secondary-btn" type="button" id="characterChoiceThree"></button>
       </div>
       <div class="character-timer" id="studyTimerReadout" role="timer" aria-live="polite" hidden></div>
+    </div>
+    <div class="character-missions">
+      <div class="character-missions-title">今日のミッション <span>最大3件</span></div>
+      <ol class="character-mission-list" id="todayMissionList"></ol>
     </div>
     <div class="capacity-panic" id="capacityPanic" role="status" hidden></div>
   </section>
@@ -135,14 +143,25 @@ enhancementStyle.textContent = `
 .character-bubble { position: relative; width: fit-content; max-width: 100%; padding: 8px 11px; border-radius: 4px 11px 11px; background: #f2f5ed; font-size: 12px; line-height: 1.5; }
 .character-bubble::before { position: absolute; top: 10px; left: -6px; border-width: 6px 6px 6px 0; border-style: solid; border-color: transparent #f2f5ed transparent transparent; content: ""; }
 .character-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+.character-actions[hidden] { display: none; }
 .character-actions button { min-height: 31px; height: auto; padding: 6px 10px; font-size: 10px; }
 .character-actions .primary-btn { background: var(--green-dark); box-shadow: none; }
+.character-plan-actions button { min-height: 36px; }
+.character-missions { flex: 1 1 230px; min-width: 210px; padding: 10px 12px; border: 1px solid #e6e8dd; border-radius: 9px; background: rgba(255,255,255,.72); }
+.character-missions-title { display: flex; justify-content: space-between; gap: 8px; color: #536447; font-size: 11px; font-weight: 700; }
+.character-missions-title span { color: #92978d; font-size: 9px; font-weight: 500; }
+.character-mission-list { display: grid; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.character-mission-item { display: flex; align-items: flex-start; gap: 7px; font-size: 10px; line-height: 1.45; }
+.character-mission-item input { flex: 0 0 auto; margin: 2px 0 0; accent-color: #70885d; }
+.character-mission-meta { display: block; color: #898f84; font-size: 9px; }
+.character-missions-empty { margin: 8px 0 0; color: #828b81; font-size: 10px; }
 .capacity-panic { flex: 0 0 auto; max-width: 230px; padding: 8px 10px; border-radius: 7px; background: #fff1eb; color: #a64e3c; font-size: 10px; font-weight: 700; }
 .capacity-panic[hidden] { display: none; }
 .task-fab { position: fixed; right: 24px; bottom: 24px; z-index: 9; display: flex; align-items: center; gap: 7px; min-height: 48px; padding: 0 17px; border: 0; border-radius: 25px; background: var(--coral); color: white; box-shadow: 0 5px 16px rgba(80, 52, 40, .25); font-size: 15px; font-weight: 700; }
 .task-fab:hover { background: #e85e52; transform: translateY(-1px); }
 .task-fab span { font-size: 11px; }
-.calendar-grid .event.ai-generated { border: 1px solid #d99054; border-left: 4px solid #d99054; background: #fff1d9; color: #765021; }
+.calendar-grid .event.ai-study, .calendar-grid .event.ai-generated { border: 1px dashed #d99054; border-left: 4px solid #d99054; background: #fff7e8; color: #765021; }
+.calendar-grid .event.ai-study .event-title::before { content: "🦉 "; }
 .calendar-grid .ai-badge { display: inline-block; margin-right: 4px; padding: 1px 3px; border-radius: 3px; background: #d99054; color: white; font-size: 8px; vertical-align: 1px; }
 .calendar-grid .ai-progress { margin-top: 3px; font-size: 8px; }
 .calendar-grid .ai-progress-track { height: 3px; margin-top: 2px; overflow: hidden; border-radius: 2px; background: rgba(118, 80, 33, .18); }
@@ -198,6 +217,7 @@ body.fixed-overview-active #fixedOverview { display: block; }
 document.head.appendChild(enhancementStyle);
 
 let characterCelebrationUntil = 0;
+let characterCelebrationMessage = '';
 let characterSuggestedTaskName = null;
 let characterDialogue = { step: 'suggestion', taskName: null, gap: null };
 
@@ -244,9 +264,11 @@ function stopStudyTimerForTask(taskId) {
 function celebrateTaskCompletion(taskId) {
   stopStudyTimerForTask(taskId);
   characterCelebrationUntil = Date.now() + 2600;
+  characterCelebrationMessage = '課題を完了！よく頑張りました。次の予定を一緒に確認しようか？';
   renderCharacterStation();
   setTimeout(() => {
     characterCelebrationUntil = 0;
+    characterCelebrationMessage = '';
     renderCharacterStation();
   }, 2600);
 }
@@ -371,8 +393,8 @@ function renderTaskOverview() {
       ['現在の進捗', `${Math.max(0, Math.min(100, planProgress))}%`]
     ];
     if (plan) {
+      if (plan.workloadKnown !== false) details.push(['課題量', `${Number(plan.workload)}${workloadUnit}`]);
       details.push(
-        ['課題量', `${Number(plan.workload)}${workloadUnit}`],
         ['難易度', `${Number(plan.difficulty)}/5`],
         ['単位数', `${Number(plan.credits)}単位`]
       );
@@ -536,7 +558,7 @@ function renderCharacterStation() {
     } else if (Date.now() < characterCelebrationUntil) {
       characterDialogue.step = 'celebration';
       mood = 'celebratory';
-      messageText = '課題を完了！よく頑張りました。次の予定を一緒に確認しようか？';
+      messageText = characterCelebrationMessage || '課題を完了！よく頑張りました。次の予定を一緒に確認しようか？';
     } else if (suggestedTask) {
       mood = 'encouraging';
       messageText = getInitialScheduleMessage(suggestedTask, nextFreeGap);
@@ -557,6 +579,7 @@ function renderCharacterStation() {
   setCharacterMessage(messageText);
   setCharacterMood(mood);
   renderCharacterChoices();
+  renderTodayMissions();
   warning.hidden = !capacity.isOverloaded || isRestDay;
   warning.textContent = `⚠️ 今日は無理しないで！ 空き ${capacity.availableMinutes}分 · 期限が近い課題 ${capacity.demandMinutes}分`;
   updateStudyTimer();
@@ -664,6 +687,70 @@ function renderCharacterChoices() {
   });
 }
 
+function getTodayMissionItems() {
+  const todayKey = dateKey(today);
+  const deadlineHorizon = dateKey(addDays(today, 7));
+  const sessions = data.sessions
+    .filter(session => session.aiGenerated && !session.done && session.day === todayKey)
+    .sort((left, right) => left.start.localeCompare(right.start))
+    .map(session => ({ kind: 'session', id: session.id, taskId: session.taskId, name: session.name, meta: `${session.start}〜${session.end}` }));
+  const scheduledTaskIds = new Set(sessions.map(session => session.taskId));
+  const urgentTasks = getPriorityPlans()
+    .filter(plan => plan.due <= deadlineHorizon)
+    .map(plan => {
+      const task = data.tasks.find(item => !item.done && item.remaining > 0
+        && (plan.legacyTaskId ? item.id === plan.legacyTaskId : item.planId === plan.id)
+        && !scheduledTaskIds.has(item.id));
+      return task ? { kind: 'task', id: task.id, name: plan.name, meta: `締め切り ${fmtDate(new Date(`${plan.due}T00:00:00`))}` } : null;
+    })
+    .filter(Boolean)
+    .slice(0, 3);
+  return [...sessions, ...urgentTasks].slice(0, 3);
+}
+
+function renderTodayMissions() {
+  const list = document.getElementById('todayMissionList');
+  const missions = getTodayMissionItems();
+  list.innerHTML = missions.length
+    ? missions.map(mission => `<li><label class="character-mission-item"><input type="checkbox" data-mission-kind="${mission.kind}" data-mission-id="${escapeHTML(mission.id)}" data-mission-task="${escapeHTML(mission.taskId || '')}"><span>${escapeHTML(mission.name)}<span class="character-mission-meta">${escapeHTML(mission.meta)}</span></span></label></li>`).join('')
+    : '<li class="character-missions-empty">今日の学習ミッションはありません。予定を確認して、無理なく過ごそう。</li>';
+  list.querySelectorAll('[data-mission-kind]').forEach(input => input.addEventListener('change', () => {
+    if (!input.checked) return;
+    completeTodayMission(input.dataset.missionKind, input.dataset.missionId, input.dataset.missionTask);
+  }));
+}
+
+function completeTodayMission(kind, id, taskId) {
+  if (kind === 'session') {
+    toggleSession(id);
+    const task = data.tasks.find(item => item.id === taskId);
+    celebrateMissionCompletion(task?.id);
+    return true;
+  }
+  const task = data.tasks.find(item => item.id === id);
+  if (!task || task.done) return false;
+  task.done = true;
+  task.remaining = 0;
+  data.sessions = data.sessions.filter(session => session.taskId !== task.id);
+  save();
+  renderTasks();
+  renderCalendar();
+  celebrateMissionCompletion(task.id);
+  return true;
+}
+
+function celebrateMissionCompletion(taskId) {
+  stopStudyTimerForTask(taskId);
+  characterCelebrationUntil = Date.now() + 2600;
+  characterCelebrationMessage = '今日のミッション達成！よく頑張ったね。少し休憩しよう。';
+  renderCharacterStation();
+  setTimeout(() => {
+    characterCelebrationUntil = 0;
+    characterCelebrationMessage = '';
+    renderCharacterStation();
+  }, 2600);
+}
+
 function getScheduleSummary(day) {
   const dayKey = dateKey(day);
   const items = [
@@ -761,6 +848,7 @@ function chooseCharacterDialogue(action) {
       setCharacterMessage('今は締切が近い未完了課題はないみたい。予定を確認して過ごし方を考えよう！');
     }
   } else if (action === 'rest') {
+    if (typeof deferTodaysAiStudyBlocks === 'function') deferTodaysAiStudyBlocks();
     characterDialogue.step = 'rest';
     characterDialogue.mood = 'resting';
     setCharacterMood('resting');
@@ -782,6 +870,13 @@ function chooseCharacterDialogue(action) {
     chooseCharacterDialogue(getCharacterDialogueOptions()[index].action);
   });
 });
+
+document.getElementById('recalculateStudyPlan').addEventListener('click', () => {
+  createSchedule({ reroute: true });
+  characterDialogue.step = 'suggestion';
+  renderCharacterStation();
+});
+document.getElementById('restToday').addEventListener('click', () => chooseCharacterDialogue('rest'));
 
 function startTwentyMinuteTask() {
   if (data.restDays.includes(dateKey(today))) {

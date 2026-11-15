@@ -43,6 +43,7 @@ jobs:
           cp spare-time.js dist/spare-time.js
           cp dashboard-enhancements.js dist/dashboard-enhancements.js
           cp quick-input.js dist/quick-input.js
+          cp smart-input.js dist/smart-input.js
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -11,11 +11,13 @@ const studyPlanningScript = fs.readFileSync(path.join(__dirname, '..', 'study-pl
 const spareTimeScript = fs.readFileSync(path.join(__dirname, '..', 'spare-time.js'), 'utf8');
 const dashboardEnhancementsScript = fs.readFileSync(path.join(__dirname, '..', 'dashboard-enhancements.js'), 'utf8');
 const quickInputScript = fs.readFileSync(path.join(__dirname, '..', 'quick-input.js'), 'utf8');
+const smartInputScript = fs.readFileSync(path.join(__dirname, '..', 'smart-input.js'), 'utf8');
 assert.match(html, /<script src="\.\/weekly-review\.js"><\/script>/, 'index.html must load the weekly review script');
 assert.match(html, /<script src="\.\/study-planning\.js"><\/script>/, 'index.html must load the study planning script');
 assert.match(html, /<script src="\.\/spare-time\.js"><\/script>/, 'index.html must load the spare-time suggestion script');
 assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261114-taskrou-choice-dialogue"><\/script>/, 'index.html must load the current dashboard enhancements');
 assert.match(html, /<script src="\.\/quick-input\.js\?v=20261113-taskrou-chat-input"><\/script>/, 'index.html must load task image support');
+assert.match(html, /<script src="\.\/smart-input\.js\?v=20261115-smart-input-planning"><\/script>/, 'index.html must load local smart input');
 assert.ok(appScripts.length, 'index.html must contain the application script');
 
 function createAppHarness(values = new Map(), browserFeatures = {}) {
@@ -57,6 +59,7 @@ function createAppHarness(values = new Map(), browserFeatures = {}) {
     },
     appendChild() {},
     parentElement: { hidden: false, insertAdjacentHTML() {} },
+    querySelector() { return makeElement(); },
     querySelectorAll() { return []; },
     reset() {},
     focus() {},
@@ -91,6 +94,7 @@ function createAppHarness(values = new Map(), browserFeatures = {}) {
   const context = vm.createContext({
     document,
     localStorage,
+    confirm() { return false; },
     FormData: FormDataStub,
     structuredClone(value) { return structuredClone(value); },
     setTimeout() { return 1; },
@@ -104,6 +108,7 @@ function createAppHarness(values = new Map(), browserFeatures = {}) {
   new vm.Script(spareTimeScript, { filename: 'spare-time.js' }).runInContext(context);
   new vm.Script(dashboardEnhancementsScript, { filename: 'dashboard-enhancements.js' }).runInContext(context);
   new vm.Script(quickInputScript, { filename: 'quick-input.js' }).runInContext(context);
+  new vm.Script(smartInputScript, { filename: 'smart-input.js' }).runInContext(context);
   return {
     document,
     run(source) { return vm.runInContext(source, context); }
@@ -146,6 +151,15 @@ function createMemoryImageDatabase() {
         return request;
       }
     }
+  };
+}
+
+function createFixedDate(hour = 12) {
+  const fixedNow = new Date();
+  fixedNow.setHours(hour, 0, 0, 0);
+  return class FixedDate extends Date {
+    constructor(...args) { super(...(args.length ? args : [fixedNow.getTime()])); }
+    static now() { return fixedNow.getTime(); }
   };
 }
 
@@ -401,6 +415,71 @@ test('one-off event submitted in the form persists and appears after reload', ()
   assert.match(calendarMarkup, /15:00 – 16:00/);
 });
 
+test('calendar event details support keyboard access and safe deletion', () => {
+  const storage = new Map();
+  const confirmationMessages = [];
+  let acceptDeletion = false;
+  const app = createAppHarness(storage, {
+    confirm(message) {
+      confirmationMessages.push(message);
+      return acceptDeletion;
+    }
+  });
+  app.run(`data.fixed = [{ id: 'weekly-event', name: 'ゼミ', day: today.getDay(), start: '10:00', end: '11:00', type: 'class' }];
+    data.extras = [{ id: 'one-off', name: '歯医者', day: dateKey(today), start: '11:00', end: '12:00', type: 'personal' }];
+    data.tasks = [{ id: 'detail-task', name: 'レポート', due: dateKey(addDays(today, 2)), hours: 1, remaining: 1, done: false }];
+    data.sessions = [{ id: 'study-session', taskId: 'detail-task', name: 'レポート', day: dateKey(today), start: '13:00', end: '14:00', type: 'study', done: false }];
+    renderCalendar()`);
+  const calendar = app.document.getElementById('calendarGrid');
+  const activateEvent = (source, id, type = 'click', key = undefined) => {
+    const element = { dataset: { eventSource: source, eventId: id } };
+    calendar.dispatch(type, {
+      key,
+      target: { closest(selector) { return selector === '[data-event-source]' ? element : null; } },
+      preventDefault() { this.defaultPrevented = true; }
+    });
+  };
+
+  assert.match(calendar.innerHTML, /data-event-source="fixed" data-event-id="weekly-event"/);
+  assert.match(calendar.innerHTML, /data-event-source="extras" data-event-id="one-off"/);
+  assert.match(calendar.innerHTML, /data-event-source="sessions" data-event-id="study-session"/);
+
+  activateEvent('extras', 'one-off');
+  assert.equal(app.document.getElementById('eventDetailTitle').textContent, '歯医者');
+  assert.equal(app.document.getElementById('eventDetailType').textContent, '個人予定');
+  assert.equal(app.document.getElementById('eventDetailDate').textContent, app.run('formatEventDate(dateKey(today))'));
+  assert.equal(app.document.getElementById('eventDetailTime').textContent, '11:00〜12:00');
+  app.document.getElementById('deleteCalendarEvent').dispatch('click', {});
+  assert.equal(app.run('data.extras.length'), 1, 'declining confirmation must keep the event');
+  assert.match(confirmationMessages[0], /歯医者を削除/);
+
+  acceptDeletion = true;
+  app.document.getElementById('deleteCalendarEvent').dispatch('click', {});
+  assert.equal(app.run('data.extras.length'), 0);
+  assert.equal(JSON.parse(storage.get('smart-calendar-v1')).extras.length, 0);
+  assert.equal(app.document.getElementById('eventDetailBackdrop').classList.added.includes('open'), false);
+
+  activateEvent('fixed', 'weekly-event', 'keydown', 'Enter');
+  assert.equal(app.document.getElementById('eventDetailDate').textContent, `毎週 ${app.run('weekNames[today.getDay()]')}曜日`);
+  assert.equal(app.document.getElementById('deleteCalendarEvent').textContent, '毎週の予定を削除');
+  app.document.getElementById('deleteCalendarEvent').dispatch('click', {});
+  assert.equal(app.run('data.fixed.length'), 0);
+
+  activateEvent('sessions', 'study-session');
+  assert.equal(app.document.getElementById('eventDetailStatus').textContent, '未完了');
+  assert.match(app.document.getElementById('eventDetailNote').textContent, /関連する課題：レポート/);
+  app.document.getElementById('toggleEventCompletion').dispatch('click', {});
+  assert.equal(app.document.getElementById('eventDetailStatus').textContent, '完了');
+  assert.equal(app.run('data.tasks[0].remaining'), 0);
+  app.document.getElementById('toggleEventCompletion').dispatch('click', {});
+  assert.equal(app.document.getElementById('eventDetailStatus').textContent, '未完了');
+  assert.equal(app.run('data.tasks[0].remaining'), 1);
+  app.document.getElementById('deleteCalendarEvent').dispatch('click', {});
+  assert.equal(app.run('data.sessions.length'), 0);
+  assert.equal(app.run('data.tasks.length'), 1, 'deleting a study session must not delete its task');
+  assert.equal(app.run('data.tasks[0].remaining'), 1);
+});
+
 test('migrates saved planner data from the legacy storage key', () => {
   const legacyData = { fixed: [], tasks: [], sessions: [], extras: [{ id: 'legacy-event', name: '以前の予定', day: '2026-10-25', start: '10:00', end: '11:00', type: 'personal' }] };
   const storage = new Map([['michi-planner-v1', JSON.stringify(legacyData)]]);
@@ -427,13 +506,13 @@ test('running automatic scheduling repeatedly does not duplicate sessions', () =
 });
 
 test('automatic scheduling does not overlap recurring, one-off, or existing commitments', () => {
-  const app = createAppHarness();
+  const app = createAppHarness(new Map(), { Date: createFixedDate(8) });
   const result = JSON.parse(app.run(`(() => {
     const day = dateKey(today);
     data.fixed = [{ id: 'class', name: '授業', day: today.getDay(), start: '09:30', end: '10:30' }];
     data.extras = [{ id: 'appointment', name: '用事', day, start: '13:00', end: '14:00' }];
     data.sessions = [{ id: 'existing', taskId: 'other-task', name: '既存の学習', day, start: '15:00', end: '16:00', type: 'study', done: false }];
-    data.tasks = [{ id: 'scheduled-task', name: '課題', due: day, hours: 3.5, remaining: 3.5, done: false }];
+    data.tasks = [{ id: 'scheduled-task', name: '課題', due: dateKey(addDays(today, 3)), hours: 3.5, remaining: 3.5, done: false }];
     createSchedule();
     return JSON.stringify({
       day,
@@ -443,32 +522,49 @@ test('automatic scheduling does not overlap recurring, one-off, or existing comm
         { start: '15:00', end: '16:00' }
       ],
       sessions: data.sessions.filter(session => session.taskId === 'scheduled-task'),
-      allActiveSessions: data.sessions.filter(session => !session.done)
+      allActiveSessions: data.sessions.filter(session => !session.done),
+      today
     });
   })()`));
 
   const minutes = time => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
   const overlaps = (left, right) => minutes(left.start) < minutes(right.end) && minutes(right.start) < minutes(left.end);
-  assert.equal(result.sessions.reduce((sum, session) => sum + (minutes(session.end) - minutes(session.start)) / 60, 0), 3.5);
+  assert.equal(result.sessions.reduce((sum, session) => sum + session.allocatedHours, 0), 3.5);
   for (const session of result.sessions) {
-    for (const commitment of result.commitments) assert.equal(overlaps(session, commitment), false);
+    if (session.day === result.today) {
+      for (const commitment of result.commitments) assert.equal(overlaps(session, commitment), false);
+    }
   }
   for (let index = 0; index < result.allActiveSessions.length; index++) {
     for (let other = index + 1; other < result.allActiveSessions.length; other++) {
-      assert.equal(overlaps(result.allActiveSessions[index], result.allActiveSessions[other]), false);
+      if (result.allActiveSessions[index].day === result.allActiveSessions[other].day) {
+        assert.equal(overlaps(result.allActiveSessions[index], result.allActiveSessions[other]), false);
+      }
     }
+  }
+  const generatedPerDay = result.allActiveSessions.filter(session => session.aiGenerated).reduce((counts, session) => {
+    counts[session.day] = (counts[session.day] || 0) + 1;
+    return counts;
+  }, {});
+  assert.ok(Object.values(generatedPerDay).every(count => count <= 2));
+  for (const session of result.sessions) {
+    const start = minutes(session.start);
+    const end = minutes(session.end);
+    assert.ok(start >= 8 * 60 && end <= 23 * 60);
+    assert.ok(end - start >= 45 && end - start <= 60);
+    assert.ok(session.day < app.run("dateKey(addDays(today, 3))"));
   }
 });
 
 test('automatic scheduling reports insufficient free time before the deadline', () => {
   const storage = new Map();
-  const app = createAppHarness(storage);
+  const app = createAppHarness(storage, { Date: createFixedDate(12) });
   const result = JSON.parse(app.run(`(() => {
     const day = dateKey(today);
     data.fixed = [{ id: 'class', name: '授業', day: today.getDay(), start: '09:00', end: '21:00' }];
     data.extras = [];
     data.sessions = [];
-    data.tasks = [{ id: 'tight-deadline', name: '締め切り間近の課題', due: day, hours: 2, remaining: 2, done: false }];
+    data.tasks = [{ id: 'tight-deadline', name: '締め切り間近の課題', due: dateKey(addDays(today, 1)), hours: 3, remaining: 3, done: false }];
     createSchedule();
     return JSON.stringify({
       day,
@@ -478,10 +574,12 @@ test('automatic scheduling reports insufficient free time before the deadline', 
     });
   })()`));
 
-  assert.equal(result.sessions.length, 1);
+  assert.equal(result.sessions.length, 2);
   assert.equal(result.sessions[0].day, result.day);
   assert.equal(result.sessions[0].start, '21:00');
   assert.equal(result.sessions[0].end, '22:00');
+  assert.equal(result.sessions[1].start, '22:00');
+  assert.equal(result.sessions[1].end, '23:00');
   assert.match(result.notification, /空き時間が足りません/);
   assert.match(result.capacityWarning, /締め切り間近の課題/);
   assert.match(result.capacityWarning, /1時間/);
@@ -503,12 +601,14 @@ test('toggling a study session done and undone persists both states and restores
   const completed = JSON.parse(storage.get('smart-calendar-v1'));
   assert.equal(completed.sessions.find(session => session.id === sessionId).done, true);
   assert.equal(completed.tasks.find(task => task.id === completed.sessions.find(session => session.id === sessionId).taskId).remaining, initial - 1);
+  assert.equal(completed.tasks.find(task => task.id === completed.sessions.find(session => session.id === sessionId).taskId).done, true);
 
   const reloadedApp = createAppHarness(storage);
   reloadedApp.run(`toggleSession('${sessionId}')`);
   const reopened = JSON.parse(storage.get('smart-calendar-v1'));
   assert.equal(reopened.sessions.find(session => session.id === sessionId).done, false);
   assert.equal(reopened.tasks.find(task => task.id === reopened.sessions.find(session => session.id === sessionId).taskId).remaining, initial);
+  assert.equal(reopened.tasks.find(task => task.id === reopened.sessions.find(session => session.id === sessionId).taskId).done, false);
 });
 
 test('rerouting preserves completed sessions and creates no duplicate active time', () => {
@@ -533,13 +633,35 @@ test('rerouting preserves completed sessions and creates no duplicate active tim
   assert.equal(result.activeTimeWithinRemaining, true);
 });
 
+test('rerouting counts completed AI blocks toward the two-block daily limit', () => {
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+  const result = JSON.parse(app.run(`(() => {
+    const day = dateKey(today);
+    data.fixed = [];
+    data.extras = [];
+    data.tasks = [{ id: 'daily-cap-task', name: '日次上限確認', due: dateKey(addDays(today, 3)), hours: 3, remaining: 2, done: false }];
+    data.sessions = [
+      { id: 'completed-ai', taskId: 'daily-cap-task', name: '完了済み', day, start: '08:00', end: '09:00', type: 'study', done: true, aiGenerated: true },
+      { id: 'active-ai', taskId: 'daily-cap-task', name: '未完了', day, start: '09:00', end: '10:00', type: 'study', done: false, aiGenerated: true, allocatedHours: 1 }
+    ];
+    createSchedule({ reroute: true });
+    return JSON.stringify({
+      todayAi: data.sessions.filter(session => session.aiGenerated && session.day === day),
+      completedPreserved: data.sessions.some(session => session.id === 'completed-ai' && session.done)
+    });
+  })()`));
+
+  assert.equal(result.completedPreserved, true);
+  assert.equal(result.todayAi.length, 2);
+});
+
 test('scheduling fills multiple open study slots for one task in a day', () => {
-  const app = createAppHarness();
+  const app = createAppHarness(new Map(), { Date: createFixedDate(8) });
   const result = JSON.parse(app.run(`(() => {
     data.fixed = [];
     data.extras = [];
     data.sessions = [];
-    const due = dateKey(today);
+    const due = dateKey(addDays(today, 1));
     data.tasks = [{ id: 'multi-slot', name: '集中して進める課題', due, hours: 3, remaining: 3, done: false }];
     createSchedule();
     const sessions = data.sessions.filter(session => session.taskId === 'multi-slot');
@@ -549,8 +671,140 @@ test('scheduling fills multiple open study slots for one task in a day', () => {
     });
   })()`));
 
-  assert.equal(result.totalHours, 3);
-  assert.deepEqual(result.sessions, [['09:00', '10:00'], ['10:00', '11:00'], ['11:00', '12:00']]);
+  assert.equal(result.totalHours, 2);
+  assert.deepEqual(result.sessions, [['08:00', '09:00'], ['09:00', '10:00']]);
+});
+
+test('local parser registers clear rows and leaves ambiguous rows for confirmation', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage, { Date: createFixedDate(12) });
+  const taskDate = app.run('addDays(today, 5)');
+  const taskLine = `${taskDate.getMonth() + 1}/${taskDate.getDate()}までに英語レポート（重め）`;
+  const text = `明日 18:00-22:00 バイト\n${taskLine}\n明日 バイト`;
+  const parsed = JSON.parse(app.run(`JSON.stringify(parseSmartInput(${JSON.stringify(text)}))`));
+  const weekly = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('毎週月曜 09:00-10:30 授業'))`));
+
+  assert.equal(parsed[0].ready, true);
+  assert.equal(parsed[0].kind, 'event');
+  assert.equal(parsed[0].type, 'work');
+  assert.deepEqual([parsed[0].start, parsed[0].end], ['18:00', '22:00']);
+  assert.equal(parsed[1].ready, true);
+  assert.equal(parsed[1].kind, 'task');
+  assert.equal(parsed[1].hours, 3);
+  assert.equal(parsed[2].ready, false);
+  assert.match(parsed[2].reason, /開始・終了時刻/);
+  assert.equal(weekly.ready, true);
+  assert.equal(weekly.repeat, 'weekly');
+  assert.equal(weekly.weekday, 1);
+
+  app.document.getElementById('smartInputText').value = `${text.split('\n')[0]}\n明日 バイト`;
+  app.document.getElementById('analyzeSmartInput').dispatch('click', {});
+  const saved = JSON.parse(storage.get('smart-calendar-v1'));
+  assert.equal(saved.extras.length, 1);
+  assert.equal(saved.extras[0].type, 'work');
+  assert.equal(app.run('smartInputPending.length'), 1);
+  assert.match(app.document.getElementById('smartInputStatus').textContent, /1件を追加しました。1件は確認が必要/);
+
+  app.run('openSmartEntryEditor(smartInputLastEntries[0])');
+  assert.equal(app.document.getElementById('eventName').value, 'バイト');
+  assert.equal(app.document.getElementById('manualInputTab').getAttribute('aria-selected'), 'true');
+  const form = app.document.getElementById('eventForm');
+  form.formValues = {
+    name: 'シフト変更',
+    type: 'work',
+    repeat: 'once',
+    oneOffDate: app.run('dateKey(addDays(today, 1))'),
+    start: '19:00',
+    end: '22:00'
+  };
+  app.run(`handleSmartManualEdit({
+    currentTarget: document.getElementById('eventForm'),
+    preventDefault() {},
+    stopImmediatePropagation() {}
+  })`);
+  assert.equal(JSON.parse(storage.get('smart-calendar-v1')).extras[0].name, 'シフト変更');
+});
+
+test('confirming an ambiguous task creates a plan and 45-to-60-minute study blocks', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage, { Date: createFixedDate(12) });
+  app.document.getElementById('smartInputText').value = '明日までに 英語課題';
+  app.document.getElementById('analyzeSmartInput').dispatch('click', {});
+  const due = app.run('dateKey(addDays(today, 2))');
+  const confirmed = app.run(`confirmSmartInputCandidate(0, ${JSON.stringify({
+    kind: 'task',
+    name: '英語課題',
+    date: due,
+    hours: 0.5
+  })})`);
+  const saved = JSON.parse(storage.get('smart-calendar-v1'));
+
+  assert.equal(confirmed.source, 'task');
+  assert.equal(saved.tasks[0].due, due);
+  assert.equal(saved.plans[0].name, '英語課題');
+  assert.equal(saved.sessions.length, 1);
+  assert.equal(saved.sessions[0].aiGenerated, true);
+  assert.equal(saved.sessions[0].allocatedHours, 0.5);
+  assert.equal((app.run(`clockMinutes('${saved.sessions[0].end}') - clockMinutes('${saved.sessions[0].start}')`)), 45);
+  assert.ok(saved.sessions[0].day < due);
+  assert.equal(app.run('smartInputPending.length'), 0);
+});
+
+test('rest defers unfinished AI blocks while preserving manual and completed sessions', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage, { Date: createFixedDate(12) });
+  const result = JSON.parse(app.run(`(() => {
+    const day = dateKey(today);
+    const tomorrow = dateKey(addDays(today, 1));
+    const due = dateKey(addDays(today, 3));
+    data.tasks = [{ id: 'rest-task', name: '休息後の課題', due, hours: 1, remaining: 1, done: false }];
+    data.sessions = [
+      { id: 'today-ai', taskId: 'rest-task', name: '今日のAI枠', day, start: '12:00', end: '13:00', type: 'study', done: false, aiGenerated: true },
+      { id: 'done-ai', taskId: 'other-task', name: '完了済み', day, start: '13:00', end: '14:00', type: 'study', done: true, aiGenerated: true },
+      { id: 'manual', taskId: 'other-task', name: '手動予定', day, start: '14:00', end: '15:00', type: 'study', done: false }
+    ];
+    const deferred = deferTodaysAiStudyBlocks();
+    return JSON.stringify({
+      deferred,
+      sessions: data.sessions,
+      restDays: data.restDays,
+      tomorrow
+    });
+  })()`));
+  const saved = JSON.parse(storage.get('smart-calendar-v1'));
+
+  assert.equal(result.deferred, 1);
+  assert.deepEqual(result.restDays, [app.run('dateKey(today)')]);
+  assert.ok(result.sessions.some(session => session.id === 'done-ai' && session.done));
+  assert.ok(result.sessions.some(session => session.id === 'manual'));
+  assert.ok(result.sessions.some(session => session.aiGenerated && session.day === result.tomorrow));
+  assert.ok(saved.sessions.every(session => session.id !== 'today-ai'));
+});
+
+test('today mission completion updates study progress and celebrates with TASKROU', () => {
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+  const result = JSON.parse(app.run(`(() => {
+    const task = { id: 'mission-task', name: '英語課題', due: dateKey(addDays(today, 3)), hours: 0.75, remaining: 0.75, done: false };
+    const session = { id: 'mission-session', taskId: task.id, name: task.name, day: dateKey(today), start: '12:00', end: '12:45', type: 'study', done: false, aiGenerated: true, allocatedHours: 0.75 };
+    data.tasks = [task];
+    data.sessions = [session];
+    renderCharacterStation();
+    const missionMarkup = document.getElementById('todayMissionList').innerHTML;
+    completeTodayMission('session', session.id, task.id);
+    return JSON.stringify({
+      missionMarkup,
+      done: session.done,
+      remaining: task.remaining,
+      mood: document.getElementById('characterAvatar').getAttribute('aria-label'),
+      message: document.getElementById('characterMessage').textContent
+    });
+  })()`));
+
+  assert.match(result.missionMarkup, /英語課題/);
+  assert.equal(result.done, true);
+  assert.equal(result.remaining, 0);
+  assert.equal(result.mood, 'TASKROU、お祝いの表情');
+  assert.match(result.message, /今日のミッション達成/);
 });
 
 test('study effort estimates scale with workload and difficulty and reject invalid inputs', () => {
@@ -570,7 +824,7 @@ test('study effort estimates scale with workload and difficulty and reject inval
 
 test('report plans split into ordered subtasks, schedule them, and persist the plan', () => {
   const storage = new Map();
-  const app = createAppHarness(storage);
+  const app = createAppHarness(storage, { Date: createFixedDate(12) });
   const result = JSON.parse(app.run(`(() => {
     const due = dateKey(addDays(today, 5));
     const plan = createStudyPlan({
@@ -607,7 +861,7 @@ test('report plans split into ordered subtasks, schedule them, and persist the p
 });
 
 test('fractional study estimates split into whole-minute sessions and fit the existing time input', () => {
-  const app = createAppHarness();
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
   const result = JSON.parse(app.run(`(() => {
     data.fixed = [];
     data.extras = [];
@@ -919,7 +1173,7 @@ test('character station warns about overloaded days and lets the user inspect pl
   assert.match(result.resting.markup, /data-mood="resting"/);
   assert.equal(result.resting.label, 'TASKROU、休息の表情');
   assert.match(result.resting.message, /休もう|休む|ゆっくり/);
-  assert.deepEqual(result.resting.restDays, []);
+  assert.deepEqual(result.resting.restDays, [app.run('dateKey(today)')]);
 });
 
 test('AI character is rendered as inline owl artwork with a mood-specific expression', () => {
@@ -1071,7 +1325,14 @@ test('task modal keeps local image attachments available without a quick-input p
 
 test('character station schedules a 20-minute task in the next open interval', () => {
   const storage = new Map();
-  const app = createAppHarness(storage);
+  const midday = new Date();
+  midday.setHours(12, 0, 0, 0);
+  const fixedNow = midday.getTime();
+  class MiddayDate extends Date {
+    constructor(...args) { super(...(args.length ? args : [fixedNow])); }
+    static now() { return fixedNow; }
+  }
+  const app = createAppHarness(storage, { Date: MiddayDate });
   const result = JSON.parse(app.run(`(() => {
     data.fixed = [];
     data.extras = [];
@@ -1089,7 +1350,7 @@ test('character station schedules a 20-minute task in the next open interval', (
   assert.match(app.document.getElementById('studyTimerReadout').textContent, /作業中 20:00/);
   assert.match(app.document.getElementById('characterAvatar').innerHTML, /data-timer-active="true"/);
   assert.equal(JSON.parse(storage.get('smart-calendar-v1')).sessions[0].taskId, 'quick-task');
-  const restoredApp = createAppHarness(storage);
+  const restoredApp = createAppHarness(storage, { Date: MiddayDate });
   assert.equal(restoredApp.run('data.activeTimer.sessionId'), result.session.id);
 
   app.run('data.activeTimer.endsAt = Date.now() - 1; updateStudyTimer()');
@@ -1098,13 +1359,13 @@ test('character station schedules a 20-minute task in the next open interval', (
   assert.equal(app.run('data.sessions[0].done'), false);
 });
 
-test('calendar keeps its existing grid layout while marking AI tasks, progress, and deadlines', () => {
-  const app = createAppHarness();
+test('calendar styles AI study blocks, progress, and deadlines', () => {
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
   const result = JSON.parse(app.run(`(() => {
     data.fixed = [];
     data.extras = [];
     data.sessions = [];
-    const due = dateKey(addDays(today, 1));
+    const due = dateKey(addDays(today, 2));
     const plan = createStudyPlan({
       name: 'レポート課題',
       kind: 'report',
@@ -1120,7 +1381,7 @@ test('calendar keeps its existing grid layout while marking AI tasks, progress, 
     selectCalendarDate(due);
     renderCalendar();
     const calendar = document.getElementById('calendarGrid').innerHTML;
-    toggleSession(data.sessions.find(session => session.taskId.startsWith(plan.id)).id);
+    data.sessions.filter(session => session.taskId.startsWith(plan.id)).map(session => session.id).forEach(toggleSession);
     return JSON.stringify({
       calendar,
       completedCalendar: document.getElementById('calendarGrid').innerHTML,
@@ -1133,10 +1394,10 @@ test('calendar keeps its existing grid layout while marking AI tasks, progress, 
   assert.match(dashboardEnhancementsScript, /\.calendar-grid \.event\.ai-generated/);
   assert.match(result.calendar, /ai-generated/);
   assert.match(result.calendar, /<span class="ai-badge">AI<\/span>/);
-  assert.match(result.calendar, /0\/3完了（0%）/);
+  assert.match(result.calendar, /0\/1完了（0%）/);
   assert.match(result.calendar, /class="day-head[^"]*has-deadline"/);
   assert.match(result.calendar, /締め切り/);
-  assert.match(result.completedCalendar, /1\/3完了（25%）/);
+  assert.match(result.completedCalendar, /1\/1完了（100%）/);
 });
 
 test('floating schedule button opens general event entry and keeps task selection available', () => {
@@ -1247,7 +1508,7 @@ test('opening a task in the list shows its saved plan details and lets the user 
   assert.match(result.expanded, /4\/5/);
   assert.match(result.expanded, /3単位/);
   assert.match(result.expanded, /教科書 p\.50〜100/);
-  assert.match(result.expanded, /約0\.7時間/);
+  assert.match(result.expanded, /約0\.8時間/);
   assert.match(result.collapsed, /aria-expanded="false"/);
   assert.match(result.collapsed, /task-overview-details[^>]* hidden/);
 });
