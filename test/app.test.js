@@ -17,7 +17,7 @@ assert.match(html, /<script src="\.\/study-planning\.js"><\/script>/, 'index.htm
 assert.match(html, /<script src="\.\/spare-time\.js"><\/script>/, 'index.html must load the spare-time suggestion script');
 assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261114-taskrou-choice-dialogue"><\/script>/, 'index.html must load the current dashboard enhancements');
 assert.match(html, /<script src="\.\/quick-input\.js\?v=20261113-taskrou-chat-input"><\/script>/, 'index.html must load task image support');
-assert.match(html, /<script src="\.\/smart-input\.js\?v=20261115-smart-input-confirmation"><\/script>/, 'index.html must load local smart input');
+assert.match(html, /<script src="\.\/smart-input\.js\?v=20261115-smart-input-refinements"><\/script>/, 'index.html must load local smart input');
 assert.ok(appScripts.length, 'index.html must contain the application script');
 
 function createAppHarness(values = new Map(), browserFeatures = {}) {
@@ -791,6 +791,79 @@ test('confirming an ambiguous task creates a plan and 45-to-60-minute study bloc
   assert.equal((app.run(`clockMinutes('${saved.sessions[0].end}') - clockMinutes('${saved.sessions[0].start}')`)), 45);
   assert.ok(saved.sessions[0].day < due);
   assert.equal(app.run('smartInputPending.length'), 0);
+});
+
+test('AI smart input extracts core event words and supports detailed categories like club', () => {
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+  const shift = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('明日はカフェでバイトがある'))`));
+  assert.equal(shift.name, 'バイト');
+  assert.equal(shift.type, 'work');
+
+  const lesson = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('月曜2限 英語'))`));
+  assert.equal(lesson.name, '英語');
+  assert.equal(lesson.type, 'class');
+  assert.equal(lesson.start, '10:40');
+  assert.equal(lesson.end, '12:10');
+
+  const club = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('金曜 17:00-19:00 サークルに参加'))`));
+  assert.equal(club.name, 'サークル');
+  assert.equal(club.type, 'club');
+
+  const report = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('11/25までに英語レポート提出がある'))`));
+  assert.equal(report.name, '英語レポート');
+  assert.equal(report.kind, 'task');
+});
+
+test('AI review highlights invalid required fields and supports club category in review', () => {
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+  app.document.getElementById('smartInputText').value = '金曜 17:00-19:00 サークル';
+  app.document.getElementById('analyzeSmartInput').dispatch('click', {});
+
+  assert.match(app.document.getElementById('smartInputReviewList').innerHTML, /value="サークル"/);
+  assert.match(app.document.getElementById('smartInputReviewList').innerHTML, /<option value="club" selected>サークル・部活<\/option>/);
+  assert.match(app.document.getElementById('smartInputReviewList').innerHTML, /<option value="work">アルバイト<\/option>/);
+
+  app.document.getElementById('confirmSmartInput').dispatch('click', {});
+  assert.equal(app.run('data.fixed.length'), 1);
+  assert.equal(app.run('data.fixed[0].name'), 'サークル');
+  assert.equal(app.run('data.fixed[0].type'), 'club');
+
+  const missing = app.run(`JSON.stringify(getSmartInputMissingFields({ kind: 'event', name: '', date: '', start: '', end: '', type: 'club' }))`);
+  assert.deepEqual(JSON.parse(missing), ['予定名', '予定日', '開始時刻', '終了時刻']);
+});
+
+test('updateSmartInputReviewPrompt adds is-invalid class to missing required inputs', () => {
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+  const row = app.document.createElement();
+  const nameInput = app.document.createElement();
+  const dateInput = app.document.createElement();
+  const startInput = app.document.createElement();
+  const endInput = app.document.createElement();
+  const requiredEl = app.document.createElement();
+  row.querySelector = selector => {
+    if (selector === '[data-smart-field="name"]') return nameInput;
+    if (selector === '[data-smart-field="date"]') return dateInput;
+    if (selector === '[data-smart-field="start"]') return startInput;
+    if (selector === '[data-smart-field="end"]') return endInput;
+    if (selector === '.smart-input-required') return requiredEl;
+    return app.document.createElement();
+  };
+  app.document.getElementById('smartInputReviewList').querySelectorAll = () => [row];
+  app.run(`updateSmartInputReviewPrompt([{
+    kind: 'event',
+    repeat: 'once',
+    name: '',
+    date: '',
+    start: '',
+    end: '',
+    type: 'personal'
+  }])`);
+
+  assert.ok(nameInput.classList.added.includes('is-invalid'));
+  assert.ok(dateInput.classList.added.includes('is-invalid'));
+  assert.ok(startInput.classList.added.includes('is-invalid'));
+  assert.ok(endInput.classList.added.includes('is-invalid'));
+  assert.ok(requiredEl.classList.added.includes('has-missing'));
 });
 
 test('rest defers unfinished AI blocks while preserving manual and completed sessions', () => {

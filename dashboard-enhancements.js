@@ -438,7 +438,7 @@ function renderTaskOverview() {
 function renderFixedScheduleOverview() {
   const list = document.getElementById('fixedOverviewList');
   const dayNames = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'];
-  const typeNames = { class: '授業', work: 'アルバイト', personal: '個人予定' };
+  const typeNames = { class: '授業', work: 'アルバイト', club: 'サークル・部活', personal: '個人予定' };
   const schedules = [...data.fixed].sort((left, right) =>
     Number(left.day) - Number(right.day)
       || String(left.start).localeCompare(String(right.start))
