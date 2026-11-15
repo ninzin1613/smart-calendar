@@ -17,7 +17,7 @@ assert.match(html, /<script src="\.\/study-planning\.js"><\/script>/, 'index.htm
 assert.match(html, /<script src="\.\/spare-time\.js"><\/script>/, 'index.html must load the spare-time suggestion script');
 assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261114-taskrou-choice-dialogue"><\/script>/, 'index.html must load the current dashboard enhancements');
 assert.match(html, /<script src="\.\/quick-input\.js\?v=20261113-taskrou-chat-input"><\/script>/, 'index.html must load task image support');
-assert.match(html, /<script src="\.\/smart-input\.js\?v=20261115-smart-input-refinements"><\/script>/, 'index.html must load local smart input');
+assert.match(html, /<script src="\.\/smart-input\.js\?v=20261115-smart-input-autoclose"><\/script>/, 'index.html must load local smart input');
 assert.ok(appScripts.length, 'index.html must contain the application script');
 
 function createAppHarness(values = new Map(), browserFeatures = {}) {
@@ -737,7 +737,11 @@ test('local parser stages clear rows and leaves ambiguous rows for confirmation'
 });
 
 test('AI schedule confirmation requires approval before adding a complete event', () => {
+  assert.doesNotMatch(smartInputScript, /AIにおまかせ入力（おすすめ）/);
+  assert.match(smartInputScript, /🦉 AIにおまかせ入力<\/button>/);
   const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+
+  app.document.getElementById('modalBackdrop').classList.add('open');
   app.document.getElementById('smartInputText').value = '明日 18:00-22:00 バイト';
   app.document.getElementById('analyzeSmartInput').dispatch('click', {});
 
@@ -750,6 +754,7 @@ test('AI schedule confirmation requires approval before adding a complete event'
   assert.equal(app.run('data.extras.length'), 1);
   assert.equal(app.run('data.extras[0].name'), 'バイト');
   assert.equal(app.document.getElementById('smartInputReview').hidden, true);
+  assert.equal(app.document.getElementById('modalBackdrop').classList.added.includes('open'), false);
 });
 
 test('AI schedule review asks for required information before saving a blank entry', () => {

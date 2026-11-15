@@ -5,7 +5,7 @@ let smartInputLastEntries = [];
 
 smartInputForm.querySelector('.modal-head').insertAdjacentHTML('afterend', `
   <div class="entry-mode-tabs" role="tablist" aria-label="予定の入力方法">
-    <button class="entry-mode-tab" type="button" id="smartInputTab" role="tab" aria-selected="true">🦉 AIにおまかせ入力（おすすめ）</button>
+    <button class="entry-mode-tab" type="button" id="smartInputTab" role="tab" aria-selected="true">🦉 AIにおまかせ入力</button>
     <button class="entry-mode-tab" type="button" id="manualInputTab" role="tab" aria-selected="false">✏️ 自分で細かく設定</button>
   </div>
   <section class="smart-input-panel" id="smartInputPanel" aria-labelledby="smartInputTitle">
@@ -641,6 +641,8 @@ function confirmSmartInputReview(candidates = readSmartInputReviewCandidates()) 
   smartInputText.value = '';
   finishSmartInputEntries(entries, document.getElementById('smartAutoSchedule').checked);
   smartInputStatus.textContent = `${entries.length}件を追加しました。`;
+  if (typeof closeModal === 'function') closeModal();
+  if (typeof showToast === 'function') showToast(`${entries.length}件の予定を追加しました`);
   return entries;
 }
 
