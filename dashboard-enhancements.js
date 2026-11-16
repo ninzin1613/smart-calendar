@@ -10,20 +10,38 @@ document.querySelector('.calendar-shell').insertAdjacentHTML('beforebegin', `
   <section class="character-station" id="characterStation" aria-labelledby="characterStationTitle">
     <div class="character-avatar" id="characterAvatar" role="img"></div>
     <div class="character-message">
-      <div class="character-title" id="characterStationTitle"><span class="character-brand">TASKROU · AI STUDY COMPANION</span><span>今日のひとこと</span></div>
-      <div class="character-bubble" id="characterMessage" role="status" aria-live="polite"></div>
-      <div class="character-actions character-plan-actions" role="group" aria-label="学習計画">
-        <button class="primary-btn" type="button" id="recalculateStudyPlan">計画を再計算（予定がずれた）</button>
-        <button class="secondary-btn" type="button" id="restToday">今日は休む</button>
+      <div class="character-title" id="characterStationTitle"><span class="character-brand">TASKROU · AI STUDY COMPANION</span></div>
+      <div class="character-tabs" role="tablist" aria-label="タスクロウ表示切り替え">
+        <button class="character-tab active" type="button" role="tab" aria-selected="true" data-character-tab="chat">💬 会話<span class="character-tab-dot" id="characterChatDot" hidden></span></button>
+        <button class="character-tab" type="button" role="tab" aria-selected="false" data-character-tab="plan">📖 学習プラン</button>
+        <button class="character-tab" type="button" role="tab" aria-selected="false" data-character-tab="deadlines">⏰ 締め切り</button>
       </div>
-      <div class="character-actions" id="characterChoices" role="group" aria-label="タスクロウへの返答" aria-live="polite" hidden>
-        <button class="primary-btn" type="button" id="characterChoiceOne"></button>
-        <button class="secondary-btn" type="button" id="characterChoiceTwo"></button>
-        <button class="secondary-btn" type="button" id="characterChoiceThree"></button>
+      <div class="character-tab-panel" id="characterTabChat">
+        <div class="character-bubble" id="characterMessage" role="status" aria-live="polite"></div>
+        <div class="character-actions character-plan-actions" role="group" aria-label="学習計画">
+          <button class="primary-btn" type="button" id="recalculateStudyPlan">計画を再計算（予定がずれた）</button>
+          <button class="secondary-btn" type="button" id="restToday">今日は休む</button>
+        </div>
+        <div class="character-actions" id="characterChoices" role="group" aria-label="タスクロウへの返答" aria-live="polite">
+          <button class="primary-btn" type="button" id="characterChoiceOne"></button>
+          <button class="secondary-btn" type="button" id="characterChoiceTwo"></button>
+          <button class="secondary-btn" type="button" id="characterChoiceThree"></button>
+        </div>
+        <div class="character-timer" id="studyTimerReadout" role="timer" aria-live="polite" hidden></div>
       </div>
-      <div class="character-timer" id="studyTimerReadout" role="timer" aria-live="polite" hidden></div>
+      <div class="character-tab-panel" id="characterTabPlan" hidden>
+        <p class="character-tab-guide">空き時間から最適な学習計画を提案するよ！</p>
+        <div class="character-plan-bar">
+          <label class="character-plan-toggle"><input type="checkbox" id="toggleStudyBlocksCalendar" checked> カレンダー表示 ON/OFF</label>
+        </div>
+        <div class="character-plan-list" id="characterPlanList"></div>
+      </div>
+      <div class="character-tab-panel" id="characterTabDeadlines" hidden>
+        <p class="character-tab-guide">7日以内の締め切りが近い課題はこれだよ！</p>
+        <div class="character-deadline-list" id="characterDeadlineList"></div>
+      </div>
     </div>
-    <div class="character-missions">
+    <div class="character-missions" hidden>
       <div class="character-missions-title">今日のミッション <span>最大3件</span></div>
       <ol class="character-mission-list" id="todayMissionList"></ol>
     </div>
@@ -49,10 +67,33 @@ document.querySelector('.main').insertAdjacentHTML('beforeend', `
   <section class="fixed-overview" id="fixedOverview" aria-labelledby="fixedOverviewTitle" hidden>
     <div class="task-overview-heading">
       <div>
-        <div class="eyebrow">WEEKLY COMMITMENTS</div>
-        <h1 id="fixedOverviewTitle">固定予定一覧</h1>
+        <div class="eyebrow">SCHEDULES</div>
+        <h1 id="fixedOverviewTitle">予定一覧</h1>
         <div class="task-overview-summary" id="fixedOverviewSummary"></div>
       </div>
+    </div>
+    <div class="schedule-filter-bar" id="scheduleFilterBar">
+      <label class="schedule-filter-field">
+        <span>種別</span>
+        <select id="scheduleRepeatFilter" aria-label="予定の繰り返しで絞り込み">
+          <option value="all">すべて</option>
+          <option value="fixed">毎週固定のみ</option>
+          <option value="once">単発の予定のみ</option>
+        </select>
+      </label>
+      <label class="schedule-filter-field">
+        <span>種類</span>
+        <select id="scheduleCategoryFilter" aria-label="予定の種類で絞り込み">
+          <option value="all">すべての種類</option>
+        </select>
+      </label>
+      <label class="schedule-filter-field">
+        <span>並び替え</span>
+        <select id="scheduleSortOrder" aria-label="予定の並び替え">
+          <option value="nearest">日付・曜日が近い順</option>
+          <option value="newest">登録が新しい順</option>
+        </select>
+      </label>
     </div>
     <div class="fixed-overview-list" id="fixedOverviewList"></div>
   </section>
@@ -139,6 +180,31 @@ enhancementStyle.textContent = `
 .owl-mascot[data-mood="celebratory"] .owl-sparkle { fill: #e7a74f; }
 .character-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 9px; margin-bottom: 5px; color: #718563; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
 .character-brand { color: #9c8050; font-size: 8px; letter-spacing: .11em; }
+.character-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
+.character-tab { position: relative; display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 11px; border: 1px solid #dce5d7; border-radius: 999px; background: #f6f8f3; color: #5b6855; font-size: 10px; font-weight: 700; }
+.character-tab.active { border-color: var(--green-dark); background: var(--green-dark); color: #fff; }
+.character-tab-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--coral); display: inline-block; }
+.character-tab-dot[hidden] { display: none; }
+.character-tab-panel[hidden] { display: none; }
+.character-tab-guide { margin: 0 0 8px; padding: 6px 10px; border-radius: 8px; background: #f2f5ed; color: #465742; font-size: 11px; font-weight: 700; }
+.character-plan-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.character-plan-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 700; color: #4e5e49; cursor: pointer; }
+.character-plan-toggle input { accent-color: var(--green-dark); }
+.character-plan-list, .character-deadline-list { display: grid; gap: 6px; }
+.character-deadline-list { max-height: 174px; overflow-y: auto; padding-right: 4px; }
+.character-plan-item, .character-deadline-item { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 8px 10px; border: 1px solid #e4ebe0; border-radius: 8px; background: #fff; }
+.character-plan-info, .character-deadline-info { min-width: 0; flex: 1; }
+.character-plan-name, .character-deadline-name { font-size: 11px; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.character-plan-meta, .character-deadline-meta { font-size: 9px; color: #798577; margin-top: 2px; }
+.character-plan-btns { display: flex; gap: 5px; flex: 0 0 auto; }
+.character-plan-btns button { height: 26px; padding: 0 8px; font-size: 10px; }
+.character-deadline-badge { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: #eef3ea; color: #4d6b3c; white-space: nowrap; }
+.character-deadline-item.is-urgent { border-color: #f0bfb4; background: #fff7f5; }
+.character-deadline-item.is-urgent .character-deadline-badge { background: #fde6e1; color: #c44434; }
+.character-empty-tab { font-size: 10px; color: #798577; padding: 6px 2px; }
+.calendar-grid .event.study-plan-block { background: rgba(139, 207, 120, 0.14) !important; border: 1.5px dashed #7aa866 !important; border-left: 3px dashed #557442 !important; color: #3d5a32 !important; }
+.calendar-grid .event.study-plan-block .event-title::before { content: "📖 "; }
+body.hide-study-blocks .calendar-grid .event.study-plan-block { display: none !important; }
 .character-message { flex: 1; min-width: 0; }
 .character-bubble { position: relative; width: fit-content; max-width: 100%; padding: 8px 11px; border-radius: 4px 11px 11px; background: #f2f5ed; font-size: 12px; line-height: 1.5; }
 .character-bubble::before { position: absolute; top: 10px; left: -6px; border-width: 6px 6px 6px 0; border-style: solid; border-color: transparent #f2f5ed transparent transparent; content: ""; }
@@ -148,6 +214,7 @@ enhancementStyle.textContent = `
 .character-actions .primary-btn { background: var(--green-dark); box-shadow: none; }
 .character-plan-actions button { min-height: 36px; }
 .character-missions { flex: 1 1 230px; min-width: 210px; padding: 10px 12px; border: 1px solid #e6e8dd; border-radius: 9px; background: rgba(255,255,255,.72); }
+.character-missions[hidden] { display: none !important; }
 .character-missions-title { display: flex; justify-content: space-between; gap: 8px; color: #536447; font-size: 11px; font-weight: 700; }
 .character-missions-title span { color: #92978d; font-size: 9px; font-weight: 500; }
 .character-mission-list { display: grid; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
@@ -198,11 +265,17 @@ body.fixed-overview-active .main > :not(.topbar):not(#fixedOverview) { display: 
 body.fixed-overview-active #fixedOverview { display: block; }
 .fixed-overview { min-height: 60vh; padding: 18px 0; }
 .fixed-overview[hidden] { display: none; }
+.schedule-filter-bar { display: flex; flex-wrap: wrap; gap: 10px; max-width: 860px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid #e4ebf4; border-radius: 10px; background: #fbfdff; }
+.schedule-filter-field { display: grid; gap: 4px; flex: 1 1 160px; min-width: 140px; }
+.schedule-filter-field span { font-size: 10px; font-weight: 700; color: #6c7a89; }
+.schedule-filter-field select { height: 34px; border: 1px solid #d8e3ef; border-radius: 7px; padding: 0 8px; background: #fff; color: var(--ink); font-size: 12px; font-weight: 600; }
 .fixed-overview-list { display: grid; gap: 9px; max-width: 860px; }
 .fixed-overview-item { display: flex; align-items: center; gap: 13px; min-height: 64px; padding: 11px 14px; border: 1px solid #e4ebf4; border-radius: 8px; background: var(--white); }
-.fixed-overview-day { flex: 0 0 76px; color: var(--green-dark); font-size: 11px; font-weight: 700; }
-.fixed-overview-info { display: grid; gap: 4px; min-width: 0; }
-.fixed-overview-name { overflow-wrap: anywhere; font-size: 12px; font-weight: 700; }
+.fixed-overview-day { flex: 0 0 92px; color: var(--green-dark); font-size: 11px; font-weight: 700; }
+.fixed-overview-info { display: grid; gap: 4px; min-width: 0; flex: 1; }
+.fixed-overview-name { overflow-wrap: anywhere; font-size: 12px; font-weight: 700; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.fixed-overview-badge { font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 999px; background: #eef3f8; color: #54667a; }
+.fixed-overview-badge.is-once { background: #fff3e6; color: #a65c1b; }
 .fixed-overview-meta { color: #828b81; font-size: 10px; }
 @media (prefers-reduced-motion: reduce) {
   .calendar-grid .event.ai-new, .owl-mascot, .owl-eyes, .owl-wing, .owl-sparkle,
@@ -273,8 +346,13 @@ function celebrateTaskCompletion(taskId) {
 
 function setCharacterMessage(text) {
   const message = document.getElementById('characterMessage');
-  if (message.textContent === text) return;
-  message.textContent = text;
+  if (!message) return;
+  const nickname = String(data.settings?.nickname || '').trim();
+  const formatted = nickname && text && !text.startsWith(`${nickname}さん`)
+    ? `${nickname}さん、${text}`
+    : text;
+  if (message.textContent === formatted) return;
+  message.textContent = formatted;
   message.classList.remove('is-updating');
   void message.offsetWidth;
   message.classList.add('is-updating');
@@ -392,29 +470,38 @@ function renderTaskOverview() {
     ];
     if (plan) {
       if (plan.workloadKnown !== false) details.push(['課題量', `${Number(plan.workload)}${workloadUnit}`]);
-      details.push(
-        ['難易度', `${Number(plan.difficulty)}/5`],
-        ['単位数', `${Number(plan.credits)}単位`]
-      );
     }
     if (plan?.kind === 'exam' || task.scope) details.push(['テスト範囲', task.scope || plan.scope || '未設定']);
     if (task.phase) {
       const phaseHours = Number(task.hours || 0);
       details.push(['この小タスク', `${task.phase} · 約${phaseHours.toFixed(phaseHours % 1 ? 1 : 0)}時間`]);
     }
-    details.push(['残り時間', `${Number(task.remaining || 0).toFixed(Number(task.remaining || 0) % 1 ? 1 : 0)}時間`]);
     const detailMarkup = details.map(([label, value]) =>
       `<div class="task-overview-detail${label === 'テスト範囲' || label === 'この小タスク' ? ' task-overview-detail-wide' : ''}"><div class="task-overview-detail-label">${label}</div><div class="task-overview-detail-value">${escapeHTML(String(value))}</div></div>`
     ).join('');
+    const editMarkup = `<div class="task-overview-detail task-overview-detail-wide"><button class="secondary-btn task-overview-edit" type="button" data-task-edit="${escapeHTML(task.id)}">変更する（編集）</button> <button class="secondary-btn task-overview-autoplan" type="button" data-task-autoplan="${escapeHTML(task.id)}">AI学習計画を作成</button></div>`;
     const imageMarkup = plan?.imageAttachmentName
       ? `<div class="task-overview-detail task-overview-detail-wide"><div class="task-overview-detail-label">添付画像</div><button class="task-overview-image" type="button" data-task-image="${escapeHTML(plan.id)}">画像を開く：${escapeHTML(plan.imageAttachmentName)}</button></div>`
       : '';
 
-    return `<div class="task-overview-card"><article class="task-overview-row${completed ? ' is-done' : ''}"><input class="check" type="checkbox" aria-label="${escapeHTML(task.name)}を完了" data-overview-task="${escapeHTML(task.id)}"${completed ? ' checked' : ''}><div class="task-info"><button class="task-overview-trigger" type="button" data-task-detail="${escapeHTML(task.id)}" aria-expanded="${expanded}" aria-controls="${escapeHTML(detailId)}"><span class="task-overview-name">${name}</span><span class="task-overview-kind">${kind}</span></button><div class="task-meta">残り約${Number(task.remaining || 0).toFixed(Number(task.remaining || 0) % 1 ? 1 : 0)}時間 · ${fmtDate(new Date(`${task.due}T00:00:00`))}締め切り${scope}</div></div><div class="task-overview-status">${completed ? '完了' : dueText}<span class="task-overview-details-link">${expanded ? '詳細を閉じる' : '詳細を見る'}</span></div></article><section class="task-overview-details" id="${escapeHTML(detailId)}" aria-label="${escapeHTML(task.name)}の詳細"${expanded ? '' : ' hidden'}>${detailMarkup}${imageMarkup}</section></div>`;
+    return `<div class="task-overview-card"><article class="task-overview-row${completed ? ' is-done' : ''}"><input class="check" type="checkbox" aria-label="${escapeHTML(task.name)}を完了" data-overview-task="${escapeHTML(task.id)}"${completed ? ' checked' : ''}><div class="task-info"><button class="task-overview-trigger" type="button" data-task-detail="${escapeHTML(task.id)}" aria-expanded="${expanded}" aria-controls="${escapeHTML(detailId)}"><span class="task-overview-name">${name}</span><span class="task-overview-kind">${kind}</span></button><div class="task-meta">残り約${Number(task.remaining || 0).toFixed(Number(task.remaining || 0) % 1 ? 1 : 0)}時間 · ${fmtDate(new Date(`${task.due}T00:00:00`))}締め切り${scope}</div></div><div class="task-overview-status">${completed ? '完了' : dueText}<span class="task-overview-details-link">${expanded ? '詳細を閉じる' : '詳細を見る'}</span></div></article><section class="task-overview-details" id="${escapeHTML(detailId)}" aria-label="${escapeHTML(task.name)}の詳細"${expanded ? '' : ' hidden'}>${detailMarkup}${imageMarkup}${editMarkup}</section></div>`;
   }).join('');
 
   list.querySelectorAll('[data-task-detail]').forEach(element => element.addEventListener('click', () => {
     toggleTaskDetail(element.dataset.taskDetail);
+  }));
+  list.querySelectorAll('[data-task-edit]').forEach(element => element.addEventListener('click', () => {
+    if (typeof openSmartEntryEditor === 'function') {
+      openSmartEntryEditor({ source: 'task', id: element.dataset.taskEdit });
+      document.getElementById('modalBackdrop').classList.add('open');
+    }
+  }));
+  list.querySelectorAll('[data-task-autoplan]').forEach(element => element.addEventListener('click', () => {
+    if (typeof autoScheduleTaskInFreeTime === 'function') {
+      const placed = autoScheduleTaskInFreeTime(element.dataset.taskAutoplan, { announce: true });
+      renderTaskOverview();
+      showToast(placed ? `${placed}コマの学習計画を配置しました` : '配置できる空き時間が見つかりませんでした');
+    }
   }));
   list.querySelectorAll('[data-task-image]').forEach(element => element.addEventListener('click', () => {
     openTaskImage(element.dataset.taskImage);
@@ -433,29 +520,121 @@ function renderTaskOverview() {
   }));
 }
 
+function syncScheduleCategoryFilterOptions() {
+  const select = document.getElementById('scheduleCategoryFilter');
+  if (!select) return;
+  const current = select.value || 'all';
+  const customCats = Array.isArray(data?.settings?.customCategories) ? data.settings.customCategories : [];
+  const options = [
+    { value: 'all', label: 'すべての種類' },
+    { value: 'class', label: '授業' },
+    { value: 'work', label: 'アルバイト' },
+    { value: 'club', label: 'サークル・部活' },
+    { value: 'personal', label: '個人予定' },
+    ...customCats.map(cat => ({ value: cat.id, label: cat.name }))
+  ];
+  select.innerHTML = options.map(opt => `<option value="${escapeHTML(opt.value)}">${escapeHTML(opt.label)}</option>`).join('');
+  select.value = options.some(opt => opt.value === current) ? current : 'all';
+}
+
+function getScheduleCreatedOrder(item, fallbackIndex) {
+  if (item.createdAt) {
+    const t = new Date(item.createdAt).getTime();
+    if (Number.isFinite(t)) return t;
+  }
+  const match = String(item.id || '').match(/(\d{10,})/);
+  if (match) return Number(match[1]);
+  return fallbackIndex;
+}
+
 function renderFixedScheduleOverview() {
   const list = document.getElementById('fixedOverviewList');
-  const dayNames = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'];
-  const typeNames = { class: '授業', work: 'アルバイト', club: 'サークル・部活', personal: '個人予定' };
-  const schedules = [...data.fixed].sort((left, right) =>
-    Number(left.day) - Number(right.day)
-      || String(left.start).localeCompare(String(right.start))
-      || String(left.name).localeCompare(String(right.name))
-  );
-  document.getElementById('fixedOverviewSummary').textContent = `毎週の固定予定 ${schedules.length}件`;
+  if (!list) return;
+  syncScheduleCategoryFilterOptions();
 
-  if (!schedules.length) {
-    list.innerHTML = '<div class="empty-state">固定予定はまだありません。</div>';
+  const repeatFilter = document.getElementById('scheduleRepeatFilter')?.value || 'all';
+  const categoryFilter = document.getElementById('scheduleCategoryFilter')?.value || 'all';
+  const sortOrder = document.getElementById('scheduleSortOrder')?.value || 'nearest';
+
+  const dayNames = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'];
+  const todayKey = dateKey(today);
+  const todayDow = today.getDay();
+
+  const fixedEntries = (Array.isArray(data.fixed) ? data.fixed : []).map((item, idx) => {
+    const day = Number(item.day);
+    const offset = Number.isInteger(day) ? (day - todayDow + 7) % 7 : 99;
+    const nextKey = Number.isInteger(day) ? dateKey(addDays(today, offset)) : '9999-99-99';
+    return {
+      item,
+      kind: 'fixed',
+      dayLabel: Number.isInteger(day) && dayNames[day] ? `毎週 ${dayNames[day]}` : '曜日未設定',
+      badgeLabel: '毎週固定',
+      sortDate: nextKey,
+      isPast: false,
+      createdOrder: getScheduleCreatedOrder(item, idx)
+    };
+  });
+
+  const extraEntries = (Array.isArray(data.extras) ? data.extras : []).map((item, idx) => {
+    const d = new Date(`${item.day}T00:00:00`);
+    const validDate = !Number.isNaN(d.getTime());
+    const dateLabel = validDate ? `${fmtDate(d)}（${weekNames[d.getDay()]}）` : escapeHTML(item.day || '');
+    return {
+      item,
+      kind: 'once',
+      dayLabel: dateLabel,
+      badgeLabel: '単発',
+      sortDate: item.day || '9999-99-99',
+      isPast: Boolean(item.day && item.day < todayKey),
+      createdOrder: getScheduleCreatedOrder(item, fixedEntries.length + idx)
+    };
+  });
+
+  const allEntries = [...fixedEntries, ...extraEntries];
+  const filtered = allEntries.filter(entry => {
+    if (repeatFilter !== 'all' && entry.kind !== repeatFilter) return false;
+    if (categoryFilter !== 'all' && (entry.item.type || 'personal') !== categoryFilter) return false;
+    return true;
+  });
+
+  filtered.sort((left, right) => {
+    if (sortOrder === 'newest') {
+      return right.createdOrder - left.createdOrder
+        || String(left.item.name).localeCompare(String(right.item.name));
+    }
+    return Number(left.isPast) - Number(right.isPast)
+      || String(left.sortDate).localeCompare(String(right.sortDate))
+      || String(left.item.start).localeCompare(String(right.item.start))
+      || String(left.item.name).localeCompare(String(right.item.name));
+  });
+
+  document.getElementById('fixedOverviewSummary').textContent =
+    `毎週の固定予定 ${fixedEntries.length}件 · 単発の予定 ${extraEntries.length}件（表示 ${filtered.length}件）`;
+
+  if (!filtered.length) {
+    list.innerHTML = '<div class="empty-state">条件に一致する予定はありません。</div>';
     return;
   }
 
-  list.innerHTML = schedules.map(item => {
-    const day = Number(item.day);
-    const dayName = Number.isInteger(day) && dayNames[day] ? dayNames[day] : '曜日未設定';
-    const typeName = typeNames[item.type] || '固定予定';
-    return `<article class="fixed-overview-item"><div class="fixed-overview-day">${dayName}</div><div class="fixed-overview-info"><div class="fixed-overview-name">${escapeHTML(item.name)}</div><div class="fixed-overview-meta">${escapeHTML(item.start)}〜${escapeHTML(item.end)} · ${typeName}</div></div></article>`;
+  list.innerHTML = filtered.map(entry => {
+    const { item, kind, dayLabel, badgeLabel } = entry;
+    const typeName = typeof getCategoryLabelByKey === 'function'
+      ? getCategoryLabelByKey(item.type)
+      : ({ class: '授業', work: 'アルバイト', club: 'サークル・部活', personal: '個人予定' }[item.type] || '予定');
+    return `<article class="fixed-overview-item">
+      <div class="fixed-overview-day">${escapeHTML(dayLabel)}</div>
+      <div class="fixed-overview-info">
+        <div class="fixed-overview-name"><span>${escapeHTML(item.name)}</span><span class="fixed-overview-badge${kind === 'once' ? ' is-once' : ''}">${badgeLabel}</span></div>
+        <div class="fixed-overview-meta">${escapeHTML(item.start)}〜${escapeHTML(item.end)} · ${escapeHTML(typeName)}</div>
+      </div>
+    </article>`;
   }).join('');
 }
+
+['scheduleRepeatFilter', 'scheduleCategoryFilter', 'scheduleSortOrder'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', renderFixedScheduleOverview);
+});
 
 let activeTaskDetailId = null;
 
@@ -517,6 +696,18 @@ function getTodayCapacity() {
   };
 }
 
+let characterAnnouncementText = '';
+let characterAnnouncementUntil = 0;
+
+function announceTaskrouStudyPlan(text) {
+  characterAnnouncementText = text;
+  characterAnnouncementUntil = Date.now() + 8000;
+  characterDialogue.step = 'announcement';
+  characterDialogue.mood = 'encouraging';
+  setCharacterMood('encouraging');
+  setCharacterMessage(text);
+}
+
 function renderCharacterStation() {
   const avatar = document.getElementById('characterAvatar');
   const warning = document.getElementById('capacityPanic');
@@ -528,11 +719,12 @@ function renderCharacterStation() {
     ? getSmartStudySuggestions(nextFreeGap, data.context.location, data.context.fatigue, 20, data.context.mode)
     : [];
   const overdue = data.tasks.some(task => !task.done && task.due < dateKey(today));
+  const slipped = typeof getSlippedStudySessions === 'function' ? getSlippedStudySessions(new Date()) : [];
   let mood = 'standard';
   characterSuggestedTaskName = null;
 
   let messageText;
-  const initialSteps = ['suggestion', 'overloaded', 'rest-day', 'overdue', 'celebration', 'no-tasks'];
+  const initialSteps = ['suggestion', 'overloaded', 'rest-day', 'overdue', 'slipped', 'announcement', 'celebration', 'no-tasks'];
   const plans = typeof getPriorityPlans === 'function' ? getPriorityPlans() : [];
   const currentDialogueTaskExists = !characterDialogue.taskName
     || plans.some(plan => plan.name === characterDialogue.taskName);
@@ -541,7 +733,11 @@ function renderCharacterStation() {
     characterDialogue = { step: 'suggestion', taskName: suggestedTask?.name || null, gap: nextFreeGap || null };
     characterSuggestedTaskName = suggestedTask?.name || null;
 
-    if (capacity.isOverloaded && !isRestDay) {
+    if (Date.now() < characterAnnouncementUntil && characterAnnouncementText) {
+      characterDialogue.step = 'announcement';
+      mood = 'encouraging';
+      messageText = characterAnnouncementText;
+    } else if (capacity.isOverloaded && !isRestDay) {
       characterDialogue.step = 'overloaded';
       mood = 'concerned';
       messageText = '今日は予定が詰まり気味。空き時間を確認して、無理のない計画にしよう！';
@@ -549,6 +745,10 @@ function renderCharacterStation() {
       characterDialogue.step = 'rest-day';
       mood = 'resting';
       messageText = '今日は休息の日。明日の予定を先に確認しておく？';
+    } else if (slipped.length && !isRestDay) {
+      characterDialogue.step = 'slipped';
+      mood = 'concerned';
+      messageText = '学習予定が少しズレちゃったみたいだね。締め切りに間に合うように、これからの空き時間で計画を組み直そうか？';
     } else if (overdue) {
       characterDialogue.step = 'overdue';
       mood = 'concerned';
@@ -563,9 +763,9 @@ function renderCharacterStation() {
     } else {
       characterDialogue.step = 'no-tasks';
       messageText = pickCharacterPhrase([
-        '課題の予定はないみたい。今日の予定や空き時間を一緒に確認しようか？',
-        '今は学習課題が入っていないね。今日のスケジュールを見てみる？',
-        '予定を確認して、空いた時間を見つけてみようか？'
+        'まだ課題が入っていないみたい！まずは課題を追加してみようか？',
+        '今週は空き時間がたっぷりあるね！調子はどう？',
+        '何か手伝うことはある？予定の確認や学習の相談、なんでも聞くよ！'
       ]);
     }
   } else {
@@ -580,7 +780,136 @@ function renderCharacterStation() {
   renderTodayMissions();
   warning.hidden = !capacity.isOverloaded || isRestDay;
   warning.textContent = `⚠️ 今日は無理しないで！ 空き ${capacity.availableMinutes}分 · 期限が近い課題 ${capacity.demandMinutes}分`;
+  const planActionsEl = document.querySelector('.character-plan-actions');
+  if (planActionsEl) planActionsEl.hidden = slipped.length === 0;
+  const chatDot = document.getElementById('characterChatDot');
+  if (chatDot) {
+    chatDot.hidden = !(slipped.length > 0 || Date.now() < characterAnnouncementUntil);
+  }
+  renderCharacterPlanTab();
+  renderCharacterDeadlineTab();
   updateStudyTimer();
+}
+
+let activeCharacterTab = 'chat';
+
+function setCharacterTab(tabName) {
+  activeCharacterTab = ['chat', 'plan', 'deadlines'].includes(tabName) ? tabName : 'chat';
+  document.querySelectorAll('[data-character-tab]').forEach(btn => {
+    const active = btn.dataset.characterTab === activeCharacterTab;
+    if (active) btn.classList.add('active');
+    else btn.classList.remove('active');
+    btn.setAttribute('aria-selected', String(active));
+  });
+  const chatPanel = document.getElementById('characterTabChat');
+  const planPanel = document.getElementById('characterTabPlan');
+  const deadlinePanel = document.getElementById('characterTabDeadlines');
+  if (chatPanel) chatPanel.hidden = activeCharacterTab !== 'chat';
+  if (planPanel) planPanel.hidden = activeCharacterTab !== 'plan';
+  if (deadlinePanel) deadlinePanel.hidden = activeCharacterTab !== 'deadlines';
+}
+
+function renderCharacterPlanTab() {
+  const list = document.getElementById('characterPlanList');
+  const toggle = document.getElementById('toggleStudyBlocksCalendar');
+  const showBlocks = data.settings?.showStudyBlocksOnCalendar !== false;
+  if (toggle) toggle.checked = showBlocks;
+  if (!list) return;
+
+  const todayKey = dateKey(today);
+  const upcoming = data.sessions
+    .filter(s => !s.done && s.type === 'study' && (/^【学習】/.test(s.name) || Number(s.allocatedHours || 0) > 0) && s.day >= todayKey)
+    .sort((a, b) => a.day.localeCompare(b.day) || a.start.localeCompare(b.start))
+    .slice(0, 4);
+
+  if (!upcoming.length) {
+    list.innerHTML = '<div class="character-empty-tab">予定されている学習プランはありません。</div>';
+    return;
+  }
+
+  list.innerHTML = upcoming.map(session => {
+    const d = new Date(`${session.day}T00:00:00`);
+    return `<div class="character-plan-item">
+      <div class="character-plan-info">
+        <div class="character-plan-name">${escapeHTML(session.name)}</div>
+        <div class="character-plan-meta">${fmtDate(d)}（${weekNames[d.getDay()]}） ${escapeHTML(session.start)}〜${escapeHTML(session.end)}</div>
+      </div>
+      <div class="character-plan-btns">
+        <button class="secondary-btn" type="button" data-plan-complete="${escapeHTML(session.id)}">✓ 完了</button>
+        <button class="secondary-btn" type="button" data-plan-defer="${escapeHTML(session.id)}">↻ 別の日に回す</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-plan-complete]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      toggleSession(btn.dataset.planComplete);
+      renderCharacterStation();
+    });
+  });
+  list.querySelectorAll('[data-plan-defer]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (typeof deferStudySessionToNextGap === 'function') {
+        const moved = deferStudySessionToNextGap(btn.dataset.planDefer, new Date());
+        renderCharacterStation();
+        showToast(moved ? '次の空き時間へ移動しました' : '移動できる空き時間が見つかりませんでした');
+      }
+    });
+  });
+}
+
+function formatDeadlineRemaining(due, dueTime, now = new Date()) {
+  const timeStr = /^\d{2}:\d{2}$/.test(dueTime || '') ? dueTime : '23:59';
+  const target = new Date(`${due}T${timeStr}:00`);
+  const diffMs = target.getTime() - now.getTime();
+  if (diffMs <= 0) return { text: '期限超過', urgent: true };
+  const totalHours = Math.floor(diffMs / 3600000);
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  const text = days > 0 ? `あと${days}日${hours}時間` : `あと${Math.max(1, hours)}時間`;
+  return { text, urgent: diffMs <= 24 * 60 * 60 * 1000 };
+}
+
+function renderCharacterDeadlineTab() {
+  const list = document.getElementById('characterDeadlineList');
+  if (!list) return;
+  const horizonKey = dateKey(addDays(today, 7));
+  const openTasks = data.tasks
+    .filter(task => !task.done && task.due <= horizonKey)
+    .sort((a, b) => a.due.localeCompare(b.due) || String(a.dueTime || '').localeCompare(String(b.dueTime || '')));
+
+  if (!openTasks.length) {
+    list.innerHTML = '<div class="character-empty-tab">7日以内の未完了の課題・テストはありません。</div>';
+    return;
+  }
+
+  const now = new Date();
+  list.innerHTML = openTasks.map(task => {
+    const rem = formatDeadlineRemaining(task.due, task.dueTime, now);
+    const d = new Date(`${task.due}T00:00:00`);
+    const timeText = task.dueTime ? ` ${escapeHTML(task.dueTime)}` : '';
+    return `<div class="character-deadline-item${rem.urgent ? ' is-urgent' : ''}">
+      <div class="character-deadline-info">
+        <div class="character-deadline-name">${escapeHTML(task.name)}</div>
+        <div class="character-deadline-meta">${fmtDate(d)}（${weekNames[d.getDay()]}）${timeText}</div>
+      </div>
+      <span class="character-deadline-badge">${rem.text}</span>
+    </div>`;
+  }).join('');
+}
+
+document.querySelectorAll('[data-character-tab]').forEach(btn => {
+  btn.addEventListener('click', () => setCharacterTab(btn.dataset.characterTab));
+});
+
+const toggleStudyBlocksEl = document.getElementById('toggleStudyBlocksCalendar');
+if (toggleStudyBlocksEl) {
+  toggleStudyBlocksEl.addEventListener('change', () => {
+    const settings = ensureUserSettings();
+    settings.showStudyBlocksOnCalendar = toggleStudyBlocksEl.checked;
+    save();
+    applyUserSettings();
+  });
 }
 
 function setCharacterMood(mood) {
@@ -649,9 +978,52 @@ function getCharacterDialogueOptions() {
       { label: '最初の提案に戻る', action: 'restart' }
     ],
     'no-tasks': [
-      { label: '今日の予定を見る', action: 'today' },
-      { label: '空き時間を確認する', action: 'other-time' },
-      { label: '締切が近い課題を見る', action: 'deadline' }
+      { label: '課題を追加する', action: 'open-smart-input' },
+      { label: '調子を話す', action: 'check-mood' },
+      { label: '今日の予定を見る', action: 'today' }
+    ],
+    'check-mood': [
+      { label: '最高！やる気ある', action: 'mood-great' },
+      { label: 'まあまあかな', action: 'mood-ok' },
+      { label: 'ちょっと疲れ気味…', action: 'mood-tired' }
+    ],
+    'mood-great': [
+      { label: '課題を追加する', action: 'open-smart-input' },
+      { label: '学習プランを見る', action: 'open-plan-tab' },
+      { label: '集中のコツを聞く', action: 'study-tip' }
+    ],
+    'mood-ok': [
+      { label: '20分だけ集中する', action: 'start-focus-timer' },
+      { label: '雑談する', action: 'small-talk' },
+      { label: '今日の予定を見る', action: 'today' }
+    ],
+    'mood-tired': [
+      { label: '今日は休む', action: 'rest' },
+      { label: '明日の予定を見る', action: 'tomorrow' },
+      { label: '応援してほしい', action: 'encourage' }
+    ],
+    encourage: [
+      { label: 'ありがとう！頑張る', action: 'free-time-chat' },
+      { label: '学習プランを見る', action: 'open-plan-tab' }
+    ],
+    'free-time-chat': [
+      { label: '20分だけ進める', action: 'start-focus-timer' },
+      { label: '課題を追加する', action: 'open-smart-input' },
+      { label: 'のんびり休憩する', action: 'rest' }
+    ],
+    'study-tip': [
+      { label: '20分集中を始める', action: 'start-focus-timer' },
+      { label: '他のコツも聞く', action: 'study-tip-2' },
+      { label: '最初の画面に戻る', action: 'restart' }
+    ],
+    'study-tip-2': [
+      { label: '課題を追加する', action: 'open-smart-input' },
+      { label: '今日の調子を話す', action: 'check-mood' }
+    ],
+    'small-talk': [
+      { label: '調子を話したい', action: 'check-mood' },
+      { label: '集中のコツを聞く', action: 'study-tip' },
+      { label: '課題を追加する', action: 'open-smart-input' }
     ],
     overloaded: [
       { label: '今日の予定を見る', action: 'today' },
@@ -681,7 +1053,15 @@ function renderCharacterChoices() {
   const options = getCharacterDialogueOptions();
   ['characterChoiceOne', 'characterChoiceTwo', 'characterChoiceThree'].forEach((id, index) => {
     const button = document.getElementById(id);
-    button.textContent = options[index].label;
+    if (!button) return;
+    const opt = options[index];
+    if (!opt) {
+      button.hidden = true;
+      button.textContent = '';
+    } else {
+      button.hidden = false;
+      button.textContent = opt.label;
+    }
   });
 }
 
@@ -855,6 +1235,65 @@ function chooseCharacterDialogue(action) {
       '了解！今日は無理せず休もうね。明日の予定も一緒に見てみる？',
       '休むのも大切だよ。明日の予定を確認して、安心して休もう！'
     ]));
+  } else if (action === 'open-smart-input') {
+    if (typeof openModal === 'function') openModal('task');
+    document.getElementById('smartInputTab')?.click();
+    document.getElementById('smartInputText')?.focus();
+    return;
+  } else if (action === 'open-plan-tab') {
+    setCharacterTab('plan');
+    return;
+  } else if (action === 'start-focus-timer') {
+    if (typeof startTwentyMinuteTask === 'function') startTwentyMinuteTask();
+    return;
+  } else if (action === 'check-mood') {
+    characterDialogue.step = 'check-mood';
+    characterDialogue.mood = 'encouraging';
+    setCharacterMood('encouraging');
+    setCharacterMessage(pickCharacterPhrase([
+      '調子はどう？無理せずペースを整えよう！',
+      '今週の調子はどんな感じかな？遠慮なく教えてね！'
+    ]));
+  } else if (action === 'mood-great') {
+    characterDialogue.step = 'mood-great';
+    characterDialogue.mood = 'celebratory';
+    setCharacterMood('celebratory');
+    setCharacterMessage('その調子！今のうちに得意な課題や重いレポートを少し進めちゃう？');
+  } else if (action === 'mood-ok') {
+    characterDialogue.step = 'mood-ok';
+    characterDialogue.mood = 'standard';
+    setCharacterMood('standard');
+    setCharacterMessage('無理のないペースが一番だね。まずは20分だけ軽めに集中してみる？');
+  } else if (action === 'mood-tired') {
+    characterDialogue.step = 'mood-tired';
+    characterDialogue.mood = 'concerned';
+    setCharacterMood('concerned');
+    setCharacterMessage('お疲れさま！無理せず今日は休む予定を入れようか？');
+  } else if (action === 'encourage') {
+    characterDialogue.step = 'encourage';
+    characterDialogue.mood = 'encouraging';
+    setCharacterMood('encouraging');
+    setCharacterMessage('ここまで毎日コツコツ頑張ってるの、ちゃんと見てるよ！深呼吸して自分のペースでいこう！');
+  } else if (action === 'free-time-chat') {
+    characterDialogue.step = 'free-time-chat';
+    characterDialogue.mood = 'encouraging';
+    setCharacterMood('encouraging');
+    setCharacterMessage('空き時間をどう過ごすのが気分に合いそう？');
+  } else if (action === 'study-tip') {
+    characterDialogue.step = 'study-tip';
+    characterDialogue.mood = 'focused';
+    setCharacterMood('focused');
+    setCharacterMessage('集中したいときは『25分集中＋5分休憩』のポモドーロもおすすめだよ。試してみる？');
+  } else if (action === 'study-tip-2') {
+    characterDialogue.step = 'study-tip-2';
+    characterDialogue.mood = 'encouraging';
+    setCharacterMood('encouraging');
+    setCharacterMessage('最初に5分だけ手を動かすと『作業興奮』で自然と続けやすくなるよ！');
+  } else if (action === 'small-talk') {
+    characterDialogue.step = 'small-talk';
+    characterDialogue.mood = 'standard';
+    setCharacterMood('standard');
+    setCharacterMessage('何か手伝うことはある？予定の整理でも、ちょっとした息抜きでも話してね！');
   } else if (action === 'restart') {
     characterDialogue.step = 'suggestion';
     renderCharacterStation();
@@ -870,9 +1309,13 @@ function chooseCharacterDialogue(action) {
 });
 
 document.getElementById('recalculateStudyPlan').addEventListener('click', () => {
-  createSchedule({ reroute: true });
-  characterDialogue.step = 'suggestion';
-  renderCharacterStation();
+  if (typeof recoverSlippedStudySchedule === 'function') {
+    recoverSlippedStudySchedule(new Date());
+  } else {
+    createSchedule({ reroute: true });
+  }
+  announceTaskrouStudyPlan('新しい空き時間で計画を組み直したよ！');
+  renderCharacterChoices();
 });
 document.getElementById('restToday').addEventListener('click', () => chooseCharacterDialogue('rest'));
 
@@ -948,6 +1391,10 @@ function decorateCalendarForStudyPlans(markup) {
       const sessionMatch = attributes.match(/data-session="([^"]+)"/);
       const session = sessionMatch && data.sessions.find(item => item.id === sessionMatch[1]);
       const task = session && data.tasks.find(item => item.id === session.taskId);
+      const isStudyPlanBlock = session && session.type === 'study' && (/^【学習】/.test(session.name) || Number(session.allocatedHours || 0) > 0);
+      if (isStudyPlanBlock && !session.aiGenerated) {
+        return `<div class="event ${classes} study-plan-block"${attributes}><div class="event-title">${title}</div><div class="event-time">${time}</div></div>`;
+      }
       if (!task?.planId || !session?.aiGenerated) return event;
       const progress = getPlanProgress(task.planId);
       const animated = data.recentlyScheduledSessionIds.includes(session.id);
@@ -1013,5 +1460,381 @@ toggleSession = id => {
 
 setInterval(updateStudyTimer, 1000);
 updateStudyTimer();
+
+const DEFAULT_EVENT_COLORS = {
+  class: '#63bfd4',
+  work: '#f2c84b',
+  club: '#f56f61',
+  study: '#8bcf78',
+  personal: '#a995dc'
+};
+
+const PRESET_EVENT_COLORS = [
+  '#63bfd4', '#4a90e2', '#5b7cfa', '#8b7ae8', '#a995dc',
+  '#8bcf78', '#52b788', '#38a3a5', '#74c69d', '#a7c957',
+  '#f2c84b', '#f4a261', '#f56f61', '#e76f51', '#ef476f',
+  '#ff8fab', '#c77dff', '#72efdd', '#90a4ae', '#607d8b'
+];
+
+const FIXED_CATEGORY_DEFS = [
+  { key: 'class', label: '授業' },
+  { key: 'work', label: 'アルバイト' },
+  { key: 'club', label: 'サークル・部活' },
+  { key: 'study', label: '課題・テスト' },
+  { key: 'personal', label: '予定（個人予定）' }
+];
+
+function normalizeHexColor(value, fallback) {
+  return /^#[0-9a-fA-F]{6}$/.test(String(value || '').trim())
+    ? String(value).trim().toLowerCase()
+    : fallback;
+}
+
+function ensureUserSettings() {
+  data.settings = data.settings && typeof data.settings === 'object' ? data.settings : {};
+  data.settings.nickname = typeof data.settings.nickname === 'string' ? data.settings.nickname.trim() : '';
+  if (typeof data.settings.showStudyBlocksOnCalendar !== 'boolean') {
+    data.settings.showStudyBlocksOnCalendar = true;
+  }
+  const savedColors = data.settings.colors && typeof data.settings.colors === 'object' ? data.settings.colors : {};
+  data.settings.colors = {
+    class: normalizeHexColor(savedColors.class, DEFAULT_EVENT_COLORS.class),
+    work: normalizeHexColor(savedColors.work, DEFAULT_EVENT_COLORS.work),
+    club: normalizeHexColor(savedColors.club, DEFAULT_EVENT_COLORS.club),
+    study: normalizeHexColor(savedColors.study, DEFAULT_EVENT_COLORS.study),
+    personal: normalizeHexColor(savedColors.personal, DEFAULT_EVENT_COLORS.personal)
+  };
+  const rawCustom = Array.isArray(data.settings.customCategories) ? data.settings.customCategories : [];
+  data.settings.customCategories = rawCustom
+    .filter(cat => cat && typeof cat.id === 'string' && typeof cat.name === 'string' && cat.name.trim())
+    .map(cat => ({
+      id: cat.id.replace(/[^a-zA-Z0-9_-]/g, '') || `custom_${Date.now()}`,
+      name: cat.name.trim().slice(0, 20),
+      color: normalizeHexColor(cat.color, PRESET_EVENT_COLORS[0])
+    }));
+  return data.settings;
+}
+
+function getAllEventCategories() {
+  const settings = ensureUserSettings();
+  return [
+    ...FIXED_CATEGORY_DEFS.map(def => ({ ...def, fixed: true, color: settings.colors[def.key] })),
+    ...settings.customCategories.map(cat => ({ key: cat.id, label: cat.name, fixed: false, color: cat.color }))
+  ];
+}
+
+function getCategoryLabelByKey(key) {
+  const fixedMap = { class: '授業', work: 'アルバイト', club: 'サークル・部活', personal: '個人予定', study: '学習・課題' };
+  if (fixedMap[key]) return fixedMap[key];
+  const custom = ensureUserSettings().customCategories.find(cat => cat.id === key);
+  return custom ? custom.name : '予定';
+}
+
+function hexToRgbTuple(hex) {
+  const clean = normalizeHexColor(hex, '#63bfd4').slice(1);
+  return [
+    parseInt(clean.slice(0, 2), 16),
+    parseInt(clean.slice(2, 4), 16),
+    parseInt(clean.slice(4, 6), 16)
+  ];
+}
+
+function getEventColorCssRule(selector, hex) {
+  const [r, g, b] = hexToRgbTuple(hex);
+  const darkR = Math.round(r * 0.45);
+  const darkG = Math.round(g * 0.45);
+  const darkB = Math.round(b * 0.45);
+  return `${selector} { border-color: ${hex}; background: rgba(${r}, ${g}, ${b}, 0.16); color: rgb(${darkR}, ${darkG}, ${darkB}); }`;
+}
+
+const SETTINGS_GEAR_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>';
+
+const fixedNavButton = document.getElementById('fixedNav');
+if (fixedNavButton && typeof fixedNavButton.insertAdjacentHTML === 'function') {
+  fixedNavButton.insertAdjacentHTML('afterend', `
+    <button class="nav-item" id="settingsNav" type="button"><span class="nav-icon">${SETTINGS_GEAR_SVG}</span><span>設定</span></button>
+  `);
+}
+
+document.body.insertAdjacentHTML('beforeend', `
+  <div class="modal-backdrop" id="settingsBackdrop" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+    <form class="modal settings-modal" id="settingsForm">
+      <div class="modal-head">
+        <h2 id="settingsModalTitle">設定</h2>
+        <button class="close-btn" type="button" id="closeSettingsModal" aria-label="閉じる">×</button>
+      </div>
+      <div class="settings-section">
+        <label class="settings-label" for="settingsNickname">ニックネーム（呼び名）</label>
+        <input id="settingsNickname" name="nickname" maxlength="20" placeholder="例：田中（未入力ならマイカレンダー）">
+      </div>
+      <div class="settings-section">
+        <div class="settings-label">基本の予定の種類とカラー</div>
+        <div class="settings-color-grid" id="settingsFixedCategories"></div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-label">カスタム種類の追加・管理</div>
+        <div class="settings-custom-add">
+          <input id="newCategoryName" type="text" maxlength="20" placeholder="例：ゼミ、就活、病院">
+          <button class="secondary-btn" type="button" id="addCustomCategoryBtn">＋ 追加</button>
+        </div>
+        <div class="color-palette-grid" id="newCategoryPalette" aria-label="新しい種類のカラー"></div>
+        <div class="settings-color-grid" id="settingsCustomCategories"></div>
+      </div>
+      <div class="modal-actions settings-actions">
+        <button class="secondary-btn" type="button" id="cancelSettingsModal">キャンセル</button>
+        <button class="primary-btn" type="submit">保存する</button>
+      </div>
+    </form>
+  </div>
+`);
+
+const settingsStyle = document.createElement('style');
+settingsStyle.textContent = `
+.nav-item .nav-icon svg { display: block; margin: 0 auto; }
+.settings-modal { max-height: 88vh; overflow-y: auto; }
+.settings-section { display: grid; gap: 8px; margin-bottom: 16px; }
+.settings-label { font-size: 11px; font-weight: 700; color: var(--ink); }
+.settings-modal input[type="text"], #settingsNickname { width: 100%; height: 38px; border: 1px solid #d8e3ef; border-radius: 8px; padding: 0 10px; background: #fff; color: var(--ink); }
+.settings-color-grid { display: grid; gap: 8px; }
+.settings-color-row { display: grid; gap: 7px; padding: 8px 10px; border: 1px solid #e4ebf4; border-radius: 8px; background: #fbfdff; font-size: 12px; font-weight: 600; }
+.settings-color-row-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.settings-color-row-title { display: inline-flex; align-items: center; gap: 7px; }
+.settings-color-dot { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 11px; border: 1px solid rgba(0,0,0,.1); }
+.settings-fixed-badge { font-size: 9px; font-weight: 700; color: #7b8898; background: #eef3f8; padding: 2px 6px; border-radius: 999px; }
+.settings-delete-cat-btn { height: 24px; padding: 0 8px; border: 1px solid #efc6c1; border-radius: 6px; background: #fff5f4; color: #b94437; font-size: 10px; font-weight: 700; cursor: pointer; }
+.color-palette-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 5px; }
+.color-swatch-btn { width: 100%; aspect-ratio: 1; max-width: 22px; min-height: 18px; padding: 0; border: 2px solid transparent; border-radius: 50%; cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
+.color-swatch-btn:hover { transform: scale(1.12); }
+.color-swatch-btn.is-selected { border-color: var(--ink); box-shadow: 0 0 0 2px #fff inset; transform: scale(1.1); }
+.settings-custom-add { display: flex; gap: 8px; }
+.settings-custom-add input { flex: 1; min-width: 0; }
+.settings-actions { flex-wrap: wrap; justify-content: flex-end; }
+`;
+document.head.appendChild(settingsStyle);
+
+const customEventColorStyle = document.createElement('style');
+customEventColorStyle.id = 'customEventColorStyle';
+document.head.appendChild(customEventColorStyle);
+
+function syncEventTypeDropdowns() {
+  const settings = ensureUserSettings();
+  const select = document.getElementById('eventType');
+  if (!select) return;
+  const currentVal = select.value || 'class';
+  const fixedOptions = [
+    { value: 'class', label: '授業' },
+    { value: 'work', label: 'アルバイト' },
+    { value: 'club', label: 'サークル・部活' },
+    { value: 'personal', label: '個人予定' },
+    { value: 'task', label: '課題・テスト' }
+  ];
+  const allOptions = [
+    ...fixedOptions,
+    ...settings.customCategories.map(cat => ({ value: cat.id, label: cat.name }))
+  ];
+  select.innerHTML = allOptions.map(opt => `<option value="${escapeHTML(opt.value)}">${escapeHTML(opt.label)}</option>`).join('');
+  if (allOptions.some(opt => opt.value === currentVal)) {
+    select.value = currentVal;
+  }
+}
+
+function syncSidebarLegend() {
+  const legend = document.querySelector('.sidebar .legend');
+  if (!legend) return;
+  const settings = ensureUserSettings();
+  const fixedRows = [
+    '<div class="legend-row"><i class="dot"></i>授業</div>',
+    '<div class="legend-row"><i class="dot work"></i>アルバイト</div>',
+    '<div class="legend-row"><i class="dot club"></i>サークル・部活</div>',
+    '<div class="legend-row"><i class="dot personal"></i>個人予定</div>',
+    '<div class="legend-row"><i class="dot study"></i>学習・課題</div>'
+  ];
+  const customRows = settings.customCategories.map(cat =>
+    `<div class="legend-row"><i class="dot" style="background:${escapeHTML(cat.color)}"></i>${escapeHTML(cat.name)}</div>`
+  );
+  legend.innerHTML = [...fixedRows, ...customRows].join('');
+}
+
+function applyUserSettings() {
+  const settings = ensureUserSettings();
+  const nickname = settings.nickname;
+  const userNameEl = document.querySelector('.sidebar-foot .user-name');
+  const avatarEl = document.querySelector('.sidebar-foot .avatar');
+  if (userNameEl) userNameEl.textContent = nickname ? `${nickname}さんのカレンダー` : 'マイカレンダー';
+  if (avatarEl) avatarEl.textContent = nickname ? nickname.slice(0, 1) : '私';
+
+  const { colors, customCategories } = settings;
+  customEventColorStyle.textContent = [
+    `.legend .dot:not(.work):not(.club):not(.personal):not(.study):not([style]) { background: ${colors.class}; }`,
+    `.legend .dot.work { background: ${colors.work}; }`,
+    `.legend .dot.club { background: ${colors.club}; }`,
+    `.legend .dot.study { background: ${colors.study}; }`,
+    `.legend .dot.personal { background: ${colors.personal}; }`,
+    getEventColorCssRule('.calendar-grid .event.class', colors.class),
+    getEventColorCssRule('.calendar-grid .event.work', colors.work),
+    getEventColorCssRule('.calendar-grid .event.club', colors.club),
+    getEventColorCssRule('.calendar-grid .event.study', colors.study),
+    getEventColorCssRule('.calendar-grid .event.personal', colors.personal),
+    ...customCategories.map(cat => getEventColorCssRule(`.calendar-grid .event.${cat.id}`, cat.color))
+  ].join('\n');
+
+  syncSidebarLegend();
+  syncEventTypeDropdowns();
+
+  if (settings.showStudyBlocksOnCalendar === false) document.body.classList.add('hide-study-blocks');
+  else document.body.classList.remove('hide-study-blocks');
+
+  if (typeof renderCharacterStation === 'function') renderCharacterStation();
+}
+
+let settingsDraftColors = { ...DEFAULT_EVENT_COLORS };
+let settingsDraftCustom = [];
+let newCategoryDraftColor = PRESET_EVENT_COLORS[0];
+
+function buildColorPaletteHtml(targetAttr, selectedColor) {
+  const normalized = normalizeHexColor(selectedColor, PRESET_EVENT_COLORS[0]);
+  return PRESET_EVENT_COLORS.map(hex =>
+    `<button type="button" class="color-swatch-btn${hex === normalized ? ' is-selected' : ''}" ${targetAttr}="${hex}" style="background:${hex}" aria-label="カラー ${hex}" aria-pressed="${hex === normalized}"></button>`
+  ).join('');
+}
+
+function renderSettingsCategoriesInModal() {
+  const fixedEl = document.getElementById('settingsFixedCategories');
+  const customEl = document.getElementById('settingsCustomCategories');
+  const newPaletteEl = document.getElementById('newCategoryPalette');
+  if (fixedEl) {
+    fixedEl.innerHTML = FIXED_CATEGORY_DEFS.map(def => {
+      const color = normalizeHexColor(settingsDraftColors[def.key], DEFAULT_EVENT_COLORS[def.key]);
+      return `<div class="settings-color-row">
+        <div class="settings-color-row-head">
+          <span class="settings-color-row-title"><span class="settings-color-dot" style="background:${color}"></span>${escapeHTML(def.label)}</span>
+          <span class="settings-fixed-badge">固定</span>
+        </div>
+        <div class="color-palette-grid">${buildColorPaletteHtml(`data-fixed-color-key="${def.key}" data-color`, color)}</div>
+      </div>`;
+    }).join('');
+    fixedEl.querySelectorAll('[data-fixed-color-key]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        settingsDraftColors[btn.dataset.fixedColorKey] = btn.dataset.color;
+        renderSettingsCategoriesInModal();
+      });
+    });
+  }
+  if (newPaletteEl) {
+    newPaletteEl.innerHTML = buildColorPaletteHtml('data-new-cat-color', newCategoryDraftColor);
+    newPaletteEl.querySelectorAll('[data-new-cat-color]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        newCategoryDraftColor = btn.dataset.newCatColor;
+        renderSettingsCategoriesInModal();
+      });
+    });
+  }
+  if (customEl) {
+    customEl.innerHTML = settingsDraftCustom.map(cat => `
+      <div class="settings-color-row">
+        <div class="settings-color-row-head">
+          <span class="settings-color-row-title"><span class="settings-color-dot" style="background:${escapeHTML(cat.color)}"></span>${escapeHTML(cat.name)}</span>
+          <button type="button" class="settings-delete-cat-btn" data-delete-custom-cat="${escapeHTML(cat.id)}">削除</button>
+        </div>
+        <div class="color-palette-grid">${buildColorPaletteHtml(`data-custom-color-id="${escapeHTML(cat.id)}" data-color`, cat.color)}</div>
+      </div>
+    `).join('');
+    customEl.querySelectorAll('[data-custom-color-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const target = settingsDraftCustom.find(c => c.id === btn.dataset.customColorId);
+        if (target) target.color = btn.dataset.color;
+        renderSettingsCategoriesInModal();
+      });
+    });
+    customEl.querySelectorAll('[data-delete-custom-cat]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        settingsDraftCustom = settingsDraftCustom.filter(c => c.id !== btn.dataset.deleteCustomCat);
+        renderSettingsCategoriesInModal();
+      });
+    });
+  }
+}
+
+function openSettingsModal() {
+  const settings = ensureUserSettings();
+  document.getElementById('settingsNickname').value = settings.nickname;
+  settingsDraftColors = { ...settings.colors };
+  settingsDraftCustom = settings.customCategories.map(cat => ({ ...cat }));
+  newCategoryDraftColor = PRESET_EVENT_COLORS[0];
+  const newNameInput = document.getElementById('newCategoryName');
+  if (newNameInput) newNameInput.value = '';
+  renderSettingsCategoriesInModal();
+  document.getElementById('settingsBackdrop').classList.add('open');
+  document.getElementById('settingsNickname').focus();
+}
+
+function closeSettingsModal() {
+  document.getElementById('settingsBackdrop').classList.remove('open');
+}
+
+function saveUserSettings({ nickname, colors, customCategories }) {
+  const settings = ensureUserSettings();
+  if (nickname !== undefined) settings.nickname = String(nickname || '').trim();
+  if (colors) {
+    settings.colors = {
+      class: normalizeHexColor(colors.class, DEFAULT_EVENT_COLORS.class),
+      work: normalizeHexColor(colors.work, DEFAULT_EVENT_COLORS.work),
+      club: normalizeHexColor(colors.club, DEFAULT_EVENT_COLORS.club),
+      study: normalizeHexColor(colors.study, DEFAULT_EVENT_COLORS.study),
+      personal: normalizeHexColor(colors.personal, DEFAULT_EVENT_COLORS.personal)
+    };
+  }
+  if (Array.isArray(customCategories)) {
+    settings.customCategories = customCategories
+      .filter(cat => cat && typeof cat.id === 'string' && typeof cat.name === 'string' && cat.name.trim())
+      .map(cat => ({
+        id: cat.id.replace(/[^a-zA-Z0-9_-]/g, '') || `custom_${Date.now()}`,
+        name: cat.name.trim().slice(0, 20),
+        color: normalizeHexColor(cat.color, PRESET_EVENT_COLORS[0])
+      }));
+  }
+  save();
+  applyUserSettings();
+  renderCalendar();
+}
+
+document.getElementById('settingsNav').addEventListener('click', openSettingsModal);
+document.getElementById('closeSettingsModal').addEventListener('click', closeSettingsModal);
+document.getElementById('cancelSettingsModal').addEventListener('click', closeSettingsModal);
+document.getElementById('settingsBackdrop').addEventListener('click', event => {
+  if (event.target.id === 'settingsBackdrop') closeSettingsModal();
+});
+document.getElementById('addCustomCategoryBtn').addEventListener('click', () => {
+  const input = document.getElementById('newCategoryName');
+  const name = String(input?.value || '').trim();
+  if (!name) {
+    showToast('種類名を入力してください');
+    return;
+  }
+  const fixedNames = ['授業', 'アルバイト', 'サークル・部活', '課題・テスト', '予定', '個人予定'];
+  if (fixedNames.includes(name) || settingsDraftCustom.some(cat => cat.name === name)) {
+    showToast('同じ名前の種類がすでにあります');
+    return;
+  }
+  settingsDraftCustom.push({
+    id: `custom_${Date.now().toString(36)}`,
+    name: name.slice(0, 20),
+    color: newCategoryDraftColor
+  });
+  if (input) input.value = '';
+  renderSettingsCategoriesInModal();
+});
+document.getElementById('settingsForm').addEventListener('submit', event => {
+  event.preventDefault();
+  saveUserSettings({
+    nickname: document.getElementById('settingsNickname').value,
+    colors: { ...settingsDraftColors },
+    customCategories: settingsDraftCustom
+  });
+  closeSettingsModal();
+  showToast('設定を保存しました');
+});
+
+applyUserSettings();
 renderCalendar();
 renderTasks();

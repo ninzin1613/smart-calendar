@@ -57,7 +57,7 @@ studyAutoSchedule.checked = true;
 const studyEstimateNote = document.getElementById('studyEstimateNote');
 
 document.querySelector('.below-calendar').insertAdjacentHTML('beforebegin', `
-  <section class="priority-panel" id="priorityPanel" aria-labelledby="priorityTitle">
+  <section class="priority-panel" id="priorityPanel" aria-labelledby="priorityTitle" hidden>
     <div class="priority-heading">
       <div>
         <div class="panel-title" id="priorityTitle">今、優先する課題</div>
@@ -166,7 +166,7 @@ function renderPriority() {
   const panel = document.getElementById('priorityPanel');
   const list = document.getElementById('priorityList');
   const plans = getPriorityPlans();
-  panel.hidden = plans.length === 0;
+  panel.hidden = true;
   list.innerHTML = plans.map((plan, index) => {
     const remaining = data.tasks
       .filter(task => plan.legacyTaskId ? task.id === plan.legacyTaskId : task.planId === plan.id)
@@ -180,10 +180,11 @@ function renderPlannedTasks() {
   const plans = getPriorityPlans();
   const tasks = plans.flatMap(plan => data.tasks
     .filter(task => plan.legacyTaskId ? task.id === plan.legacyTaskId : task.planId === plan.id)
-    .filter(task => !task.done && task.remaining > 0)
+    .filter(task => !task.done && (Number(task.hours || 0) === 0 || task.remaining > 0))
     .map(task => ({ ...task, parentName: plan.name, score: plan.score })))
     .sort((left, right) => right.score - left.score || left.order - right.order);
-  document.getElementById('taskCount').textContent = tasks.length;
+  const openTaskCount = data.tasks.filter(task => !task.done && (Number(task.hours || 0) === 0 || task.remaining > 0)).length;
+  document.getElementById('taskCount').textContent = openTaskCount;
   if (!tasks.length) {
     list.innerHTML = '<div class="empty-state">課題はすべて完了。いい調子です。</div>';
   } else {
@@ -492,6 +493,166 @@ toggleSession = (...args) => {
 };
 
 renderTasks = renderPlannedTasks;
+function formatClockFromMinutes(totalMinutes) {
+  const clamped = Math.max(0, Math.min(24 * 60, Math.round(totalMinutes)));
+  return `${String(Math.floor(clamped / 60)).padStart(2, '0')}:${String(clamped % 60).padStart(2, '0')}`;
+}
+
+function findAvailableStudyIntervals(date, minMinutes = 60, now = new Date()) {
+  const day = dateKey(date);
+  const todayKey = dateKey(today);
+  const blocks = getBlocks(date)
+    .map(item => ({ start: clockMinutes(item.start), end: clockMinutes(item.end) }))
+    .sort((left, right) => left.start - right.start);
+  let cursor = 540; // 09:00
+  if (day === todayKey) {
+    cursor = Math.max(cursor, now.getHours() * 60 + now.getMinutes());
+  }
+  const available = [];
+  for (const block of blocks) {
+    if (block.start - cursor >= minMinutes) available.push([cursor, Math.min(block.start, 1320)]);
+    cursor = Math.max(cursor, block.end);
+  }
+  if (1320 - cursor >= minMinutes) available.push([cursor, 1320]); // until 22:00
+  return available;
+}
+
+function autoScheduleTaskInFreeTime(taskId, { now = new Date(), announce = true } = {}) {
+  const task = data.tasks.find(item => item.id === taskId && !item.done);
+  if (!task) return 0;
+
+  const existingStudyHours = data.sessions
+    .filter(s => s.taskId === task.id && !s.done && /^【学習】/.test(s.name))
+    .reduce((sum, s) => sum + durationHours(s.start, s.end), 0);
+
+  let targetHours = Number(task.remaining) > 0 ? Number(task.remaining) : 1.5;
+  if (Number(task.hours || 0) === 0) {
+    task.hours = targetHours;
+    task.remaining = targetHours;
+    const plan = task.planId && data.plans.find(p => p.id === task.planId);
+    if (plan && Number(plan.estimatedHours || 0) === 0) plan.estimatedHours = targetHours;
+  }
+
+  let remainingMinutes = Math.max(0, Math.round((targetHours - existingStudyHours) * 60));
+  if (remainingMinutes < 60) remainingMinutes = existingStudyHours > 0 ? 0 : 60;
+
+  const todayKey = dateKey(today);
+  const dueDate = new Date(`${task.due}T00:00:00`);
+  let placed = 0;
+
+  for (let date = new Date(`${todayKey}T00:00:00`); date <= dueDate && remainingMinutes >= 60; date = addDays(date, 1)) {
+    const day = dateKey(date);
+    const intervals = findAvailableStudyIntervals(date, 60, now);
+    for (const [start, end] of intervals) {
+      if (remainingMinutes < 60) break;
+      const maxEnd = day === task.due && task.dueTime ? Math.min(end, clockMinutes(task.dueTime)) : end;
+      if (maxEnd - start < 60) continue;
+      const blockMinutes = Math.min(90, Math.max(60, Math.min(remainingMinutes, maxEnd - start)));
+      if (blockMinutes < 60) continue;
+      const startText = formatClockFromMinutes(start);
+      const endText = formatClockFromMinutes(start + blockMinutes);
+      data.sessions.push({
+        id: `s${Date.now()}${Math.random().toString(16).slice(2, 6)}`,
+        taskId: task.id,
+        name: `【学習】${task.name}`,
+        day,
+        start: startText,
+        end: endText,
+        type: 'study',
+        done: false,
+        allocatedHours: blockMinutes / 60
+      });
+      remainingMinutes -= blockMinutes;
+      placed++;
+      break; // balanced across days: 1 study block per day when possible
+    }
+  }
+
+  save();
+  renderCalendar();
+  renderTasks();
+  if (announce && typeof announceTaskrouStudyPlan === 'function') {
+    announceTaskrouStudyPlan(`『${task.name}』の締め切りに間に合うように空き時間へ学習計画を入れたよ！`);
+  }
+  return placed;
+}
+
+function getSlippedStudySessions(now = new Date()) {
+  const todayKey = dateKey(today);
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  return data.sessions.filter(session => {
+    if (session.done || session.type !== 'study') return false;
+    const task = data.tasks.find(t => t.id === session.taskId);
+    if (task && task.done) return false;
+    if (session.day < todayKey) return true;
+    if (session.day === todayKey && clockMinutes(session.end) <= nowMins) return true;
+    return false;
+  });
+}
+
+function recoverSlippedStudySchedule(now = new Date()) {
+  const todayKey = dateKey(today);
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  const hadLabelledStudy = new Set(
+    data.sessions
+      .filter(s => !s.done && s.type === 'study' && /^【学習】/.test(s.name) && s.taskId)
+      .map(s => s.taskId)
+  );
+  data.sessions = data.sessions.filter(session => {
+    if (session.done || session.type !== 'study') return true;
+    const isPast = session.day < todayKey || (session.day === todayKey && clockMinutes(session.end) <= nowMins);
+    const isAutoStudy = Boolean(session.aiGenerated) || /^【学習】/.test(session.name);
+    if (isPast && isAutoStudy) return false;
+    if (hadLabelledStudy.has(session.taskId) && /^【学習】/.test(session.name)) return false;
+    return true;
+  });
+
+  for (const taskId of hadLabelledStudy) {
+    autoScheduleTaskInFreeTime(taskId, { now, announce: false });
+  }
+  const remainingAiTasks = data.tasks.filter(t => !t.done && t.remaining > 0 && !hadLabelledStudy.has(t.id));
+  if (remainingAiTasks.length) {
+    createStudySchedule({ reroute: true });
+  }
+  save();
+  renderCalendar();
+  renderTasks();
+}
+
+function deferStudySessionToNextGap(sessionId, now = new Date()) {
+  const session = data.sessions.find(s => s.id === sessionId);
+  if (!session) return false;
+  const task = data.tasks.find(t => t.id === session.taskId);
+  const blockMinutes = Math.min(90, Math.max(60, Math.round(durationHours(session.start, session.end) * 60) || 60));
+  const currentDay = session.day;
+  const currentEnd = clockMinutes(session.end);
+  const todayKey = dateKey(today);
+  const startSearchDay = currentDay >= todayKey ? currentDay : todayKey;
+  const endDate = task?.due ? new Date(`${task.due}T00:00:00`) : addDays(new Date(`${startSearchDay}T00:00:00`), 7);
+
+  for (let date = new Date(`${startSearchDay}T00:00:00`); date <= endDate; date = addDays(date, 1)) {
+    const day = dateKey(date);
+    const intervals = findAvailableStudyIntervals(date, blockMinutes, now);
+    for (const [start, end] of intervals) {
+      let candidateStart = start;
+      if (day === currentDay && candidateStart < currentEnd) {
+        candidateStart = currentEnd;
+      }
+      const maxEnd = task && day === task.due && task.dueTime ? Math.min(end, clockMinutes(task.dueTime)) : end;
+      if (maxEnd - candidateStart >= blockMinutes) {
+        session.day = day;
+        session.start = formatClockFromMinutes(candidateStart);
+        session.end = formatClockFromMinutes(candidateStart + blockMinutes);
+        save();
+        renderCalendar();
+        renderTasks();
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 createSchedule = createStudySchedule;
 syncStudyFields();
 renderTasks();

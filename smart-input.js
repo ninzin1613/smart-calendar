@@ -556,6 +556,9 @@ function extractSmartEventName(source, isTask, detectedType) {
   if (detectedType === 'work') return 'バイト';
   if (detectedType === 'class') return '授業';
   if (detectedType === 'club') return 'サークル';
+  const matchedCustom = (typeof ensureUserSettings === 'function' ? ensureUserSettings().customCategories : data?.settings?.customCategories || [])
+    .find(cat => cat.id === detectedType);
+  if (matchedCustom) return matchedCustom.name;
   return '予定';
 }
 
@@ -570,8 +573,15 @@ function parseSmartInputLine(input) {
   const isWeeklyKeyword = /(?:時間割|毎週|固定|学期)/.test(line);
   const isWeekly = !isTask && (isWeeklyKeyword || Boolean(weekday && !hasExplicitDate));
 
+  const customCats = typeof ensureUserSettings === 'function'
+    ? ensureUserSettings().customCategories
+    : (Array.isArray(data?.settings?.customCategories) ? data.settings.customCategories : []);
+  const matchedCustomCat = customCats.find(cat => cat.name && line.toLowerCase().includes(cat.name.toLowerCase()));
+
   let detectedType = 'personal';
-  if (/バイト|アルバイト|シフト|塾講師|カフェ|居酒屋|コンビニ/.test(line)) {
+  if (matchedCustomCat) {
+    detectedType = matchedCustomCat.id;
+  } else if (/バイト|アルバイト|シフト|塾講師|カフェ|居酒屋|コンビニ/.test(line)) {
     detectedType = 'work';
   } else if (/授業|講義|ゼミ|演習|実験|[1-6]限|時間割|学期/.test(line)) {
     detectedType = 'class';
@@ -644,6 +654,7 @@ function commitSmartInputEntry(candidate) {
       planId,
       name: candidate.name,
       due: candidate.date,
+      dueTime: candidate.end || '',
       hours,
       remaining: hours,
       done: false
@@ -699,9 +710,22 @@ function commitSmartInputEntry(candidate) {
 }
 
 function finishSmartInputEntries(entries, shouldSchedule) {
-  const containsTasks = entries.some(entry => entry.source === 'task');
-  if (containsTasks && shouldSchedule) createSchedule();
-  else {
+  const taskEntries = entries.filter(entry => entry.source === 'task');
+  if (taskEntries.length && shouldSchedule) {
+    for (const entry of taskEntries) {
+      const task = data.tasks.find(t => t.id === entry.id);
+      if (task && Number(task.hours || 0) === 0 && typeof autoScheduleTaskInFreeTime === 'function') {
+        autoScheduleTaskInFreeTime(task.id, { announce: true });
+      }
+    }
+    if (taskEntries.some(entry => Number(data.tasks.find(t => t.id === entry.id)?.hours || 0) > 0)) {
+      createSchedule();
+      const lastTask = taskEntries[taskEntries.length - 1];
+      if (lastTask && typeof announceTaskrouStudyPlan === 'function') {
+        announceTaskrouStudyPlan(`『${lastTask.name}』の締め切りに間に合うように空き時間へ学習計画を入れたよ！`);
+      }
+    }
+  } else {
     save();
     renderCalendar();
     renderTasks();
@@ -725,6 +749,7 @@ function getSmartInputMissingFields(candidate) {
   if (!String(candidate.name || '').trim()) missing.push('予定名');
   if (candidate.kind === 'task') {
     if (!candidate.date || candidate.date < dateKey(today)) missing.push('締め切り日');
+    if (!candidate.end) missing.push('締め切り時刻');
     return missing;
   }
 
@@ -815,7 +840,7 @@ function updateSmartInputReviewPrompt(candidates = readSmartInputReviewCandidate
       setValidity('[data-smart-field="end"]', endMissing || timeOrderInvalid);
     } else {
       setValidity('[data-smart-field="start"]', false);
-      setValidity('[data-smart-field="end"]', false);
+      setValidity('[data-smart-field="end"]', !candidate.end);
     }
 
     if (isTask && candidate.hours !== '' && candidate.hours !== 0 && candidate.hours != null) {
@@ -832,6 +857,10 @@ function updateSmartInputReviewPrompt(candidates = readSmartInputReviewCandidate
 }
 
 function renderSmartInputPending() {
+  const customCategories = typeof ensureUserSettings === 'function'
+    ? ensureUserSettings().customCategories
+    : (Array.isArray(data?.settings?.customCategories) ? data.settings.customCategories : []);
+
   smartInputReviewList.innerHTML = smartInputPending.map((candidate, index) => {
     const isTask = candidate.kind === 'task';
     const repeat = candidate.repeat || 'once';
@@ -853,6 +882,7 @@ function renderSmartInputPending() {
             <option value="task_report"${selectedCategory === 'task_report' ? ' selected' : ''}>課題・レポート</option>
             <option value="task_exam"${selectedCategory === 'task_exam' ? ' selected' : ''}>テスト・試験対策</option>
             <option value="personal"${selectedCategory === 'personal' ? ' selected' : ''}>個人予定（プライベート）</option>
+            ${customCategories.map(cat => `<option value="${escapeHTML(cat.id)}"${selectedCategory === cat.id ? ' selected' : ''}>${escapeHTML(cat.name)}</option>`).join('')}
           </select>
         </label>
         <label>名前<input data-smart-field="name" maxlength="40" value="${escapeHTML(candidate.name)}">${smartOcrTitleSuggestions.length ? `<div class="smart-title-chips" aria-label="タイトル候補">${smartOcrTitleSuggestions.map(title => `<button type="button" class="smart-title-chip" data-smart-title-chip="${escapeHTML(title)}">${escapeHTML(title)}</button>`).join('')}</div>` : ''}</label>
@@ -865,10 +895,10 @@ function renderSmartInputPending() {
       <label data-smart-weekday-field>曜日<select data-smart-field="weekday"><option value=""${candidate.weekday == null ? ' selected' : ''}>曜日を選択</option>${['日','月','火','水','木','金','土'].map((day, weekday) => `<option value="${weekday}"${Number(candidate.weekday) === weekday ? ' selected' : ''}>${day}曜日</option>`).join('')}</select></label>
       <div class="smart-pending-row">
         <label>開始<input data-smart-field="start" type="time" value="${escapeHTML(candidate.start || '')}"></label>
-        <label>終了<input data-smart-field="end" type="time" value="${escapeHTML(candidate.end || '')}"></label>
+        <label><span data-smart-end-label>${isTask ? '締め切り時刻' : '終了'}</span><input data-smart-field="end" type="time" value="${escapeHTML(candidate.end || '')}"></label>
       </div>
       <div class="smart-pending-row" data-smart-event-field style="display:none">
-        <label>種類詳細<select data-smart-field="type"><option value="class"${candidate.type === 'class' ? ' selected' : ''}>授業</option><option value="work"${candidate.type === 'work' ? ' selected' : ''}>アルバイト</option><option value="club"${candidate.type === 'club' ? ' selected' : ''}>サークル・部活</option><option value="personal"${candidate.type === 'personal' ? ' selected' : ''}>個人予定</option></select></label>
+        <label>種類詳細<select data-smart-field="type"><option value="class"${candidate.type === 'class' ? ' selected' : ''}>授業</option><option value="work"${candidate.type === 'work' ? ' selected' : ''}>アルバイト</option><option value="club"${candidate.type === 'club' ? ' selected' : ''}>サークル・部活</option><option value="personal"${candidate.type === 'personal' ? ' selected' : ''}>個人予定</option>${customCategories.map(cat => `<option value="${escapeHTML(cat.id)}"${candidate.type === cat.id ? ' selected' : ''}>${escapeHTML(cat.name)}</option>`).join('')}</select></label>
       </div>
       <label data-smart-task-field>学習時間（時間）<input data-smart-field="hours" type="number" min="0" max="200" step="0.5" value="${candidate.hours || ''}"></label>
     </article>`;
@@ -908,6 +938,8 @@ function renderSmartInputPending() {
       row.querySelectorAll('[data-smart-event-field]').forEach(field => { field.hidden = isTask; });
       row.querySelectorAll('[data-smart-task-field]').forEach(field => { field.hidden = !isTask; });
       row.querySelector('[data-smart-date-label]').textContent = isTask ? '締め切り日' : '予定日';
+      const endLabel = row.querySelector('[data-smart-end-label]');
+      if (endLabel) endLabel.textContent = isTask ? '締め切り時刻' : '終了';
       row.querySelector('[data-smart-weekday-field]').hidden = isTask || repeat.value !== 'weekly';
       row.querySelector('[data-smart-date-field]').hidden = !isTask && repeat.value === 'weekly';
       if (!isTask && repeat.value === 'weekly') {
