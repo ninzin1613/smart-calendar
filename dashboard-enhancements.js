@@ -270,7 +270,9 @@ body.fixed-overview-active #fixedOverview { display: block; }
 .schedule-filter-field span { font-size: 10px; font-weight: 700; color: #6c7a89; }
 .schedule-filter-field select { height: 34px; border: 1px solid #d8e3ef; border-radius: 7px; padding: 0 8px; background: #fff; color: var(--ink); font-size: 12px; font-weight: 600; }
 .fixed-overview-list { display: grid; gap: 9px; max-width: 860px; }
-.fixed-overview-item { display: flex; align-items: center; gap: 13px; min-height: 64px; padding: 11px 14px; border: 1px solid #e4ebf4; border-radius: 8px; background: var(--white); }
+.fixed-overview-item { display: flex; align-items: center; gap: 13px; min-height: 64px; padding: 11px 14px; border: 1px solid #e4ebf4; border-radius: 8px; background: var(--white); cursor: pointer; transition: background .15s ease, border-color .15s ease; }
+.fixed-overview-item:hover { background: #f6f9fe; border-color: #c7d7eb; }
+.fixed-overview-item:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .fixed-overview-day { flex: 0 0 92px; color: var(--green-dark); font-size: 11px; font-weight: 700; }
 .fixed-overview-info { display: grid; gap: 4px; min-width: 0; flex: 1; }
 .fixed-overview-name { overflow-wrap: anywhere; font-size: 12px; font-weight: 700; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
@@ -618,10 +620,11 @@ function renderFixedScheduleOverview() {
 
   list.innerHTML = filtered.map(entry => {
     const { item, kind, dayLabel, badgeLabel } = entry;
+    const source = kind === 'fixed' ? 'fixed' : 'extras';
     const typeName = typeof getCategoryLabelByKey === 'function'
       ? getCategoryLabelByKey(item.type)
       : ({ class: '授業', work: 'アルバイト', club: 'サークル・部活', personal: '個人予定' }[item.type] || '予定');
-    return `<article class="fixed-overview-item">
+    return `<article class="fixed-overview-item" role="button" tabindex="0" data-schedule-source="${source}" data-schedule-id="${escapeHTML(item.id)}" aria-label="${escapeHTML(item.name)}の詳細を表示">
       <div class="fixed-overview-day">${escapeHTML(dayLabel)}</div>
       <div class="fixed-overview-info">
         <div class="fixed-overview-name"><span>${escapeHTML(item.name)}</span><span class="fixed-overview-badge${kind === 'once' ? ' is-once' : ''}">${badgeLabel}</span></div>
@@ -629,6 +632,20 @@ function renderFixedScheduleOverview() {
       </div>
     </article>`;
   }).join('');
+
+  list.querySelectorAll('[data-schedule-id]').forEach(card => {
+    const open = () => {
+      if (typeof openEventDetails === 'function') {
+        openEventDetails(card.dataset.scheduleSource, card.dataset.scheduleId);
+      }
+    };
+    card.addEventListener('click', open);
+    card.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      open();
+    });
+  });
 }
 
 ['scheduleRepeatFilter', 'scheduleCategoryFilter', 'scheduleSortOrder'].forEach(id => {
@@ -1470,10 +1487,10 @@ const DEFAULT_EVENT_COLORS = {
 };
 
 const PRESET_EVENT_COLORS = [
-  '#63bfd4', '#4a90e2', '#5b7cfa', '#8b7ae8', '#a995dc',
-  '#8bcf78', '#52b788', '#38a3a5', '#74c69d', '#a7c957',
-  '#f2c84b', '#f4a261', '#f56f61', '#e76f51', '#ef476f',
-  '#ff8fab', '#c77dff', '#72efdd', '#90a4ae', '#607d8b'
+  '#e5534b', '#f56f61', '#ef476f', '#ff7aa2', '#f4845f',
+  '#f4a261', '#f6bd60', '#f2c84b', '#cde058', '#a7c957',
+  '#8bcf78', '#52b788', '#38a3a5', '#63bfd4', '#4a90e2',
+  '#5b7cfa', '#8b7ae8', '#a995dc', '#90a4ae', '#607d8b'
 ];
 
 const FIXED_CATEGORY_DEFS = [
@@ -1574,10 +1591,12 @@ document.body.insertAdjacentHTML('beforeend', `
       <div class="settings-section">
         <div class="settings-label">カスタム種類の追加・管理</div>
         <div class="settings-custom-add">
+          <span class="settings-color-dot settings-new-color-dot" id="newCategoryColorPreview" style="background:${PRESET_EVENT_COLORS[0]}"></span>
           <input id="newCategoryName" type="text" maxlength="20" placeholder="例：ゼミ、就活、病院">
+          <button class="settings-color-toggle-btn" type="button" id="toggleNewCategoryPaletteBtn" aria-expanded="false">色を変更</button>
           <button class="secondary-btn" type="button" id="addCustomCategoryBtn">＋ 追加</button>
         </div>
-        <div class="color-palette-grid" id="newCategoryPalette" aria-label="新しい種類のカラー"></div>
+        <div class="color-palette-grid is-accordion" id="newCategoryPalette" aria-label="新しい種類のカラー" hidden></div>
         <div class="settings-color-grid" id="settingsCustomCategories"></div>
       </div>
       <div class="modal-actions settings-actions">
@@ -1595,18 +1614,23 @@ settingsStyle.textContent = `
 .settings-section { display: grid; gap: 8px; margin-bottom: 16px; }
 .settings-label { font-size: 11px; font-weight: 700; color: var(--ink); }
 .settings-modal input[type="text"], #settingsNickname { width: 100%; height: 38px; border: 1px solid #d8e3ef; border-radius: 8px; padding: 0 10px; background: #fff; color: var(--ink); }
-.settings-color-grid { display: grid; gap: 8px; }
-.settings-color-row { display: grid; gap: 7px; padding: 8px 10px; border: 1px solid #e4ebf4; border-radius: 8px; background: #fbfdff; font-size: 12px; font-weight: 600; }
+.settings-color-grid { display: grid; gap: 7px; }
+.settings-color-row { display: grid; gap: 8px; padding: 8px 10px; border: 1px solid #e4ebf4; border-radius: 8px; background: #fbfdff; font-size: 12px; font-weight: 600; }
 .settings-color-row-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.settings-color-row-title { display: inline-flex; align-items: center; gap: 7px; }
-.settings-color-dot { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 11px; border: 1px solid rgba(0,0,0,.1); }
+.settings-color-row-title { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.settings-row-actions { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.settings-color-dot { width: 14px; height: 14px; border-radius: 50%; flex: 0 0 14px; border: 1px solid rgba(0,0,0,.14); }
 .settings-fixed-badge { font-size: 9px; font-weight: 700; color: #7b8898; background: #eef3f8; padding: 2px 6px; border-radius: 999px; }
-.settings-delete-cat-btn { height: 24px; padding: 0 8px; border: 1px solid #efc6c1; border-radius: 6px; background: #fff5f4; color: #b94437; font-size: 10px; font-weight: 700; cursor: pointer; }
+.settings-color-toggle-btn { height: 26px; padding: 0 9px; border: 1px solid #d8e3ef; border-radius: 6px; background: #fff; color: var(--ink); font-size: 10px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.settings-color-toggle-btn:hover { background: #f2f6fb; }
+.settings-delete-cat-btn { height: 26px; padding: 0 8px; border: 1px solid #efc6c1; border-radius: 6px; background: #fff5f4; color: #b94437; font-size: 10px; font-weight: 700; cursor: pointer; }
 .color-palette-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 5px; }
+.color-palette-grid.is-accordion { padding: 8px; border: 1px solid #e4ebf4; border-radius: 8px; background: #fff; }
+.color-palette-grid[hidden] { display: none; }
 .color-swatch-btn { width: 100%; aspect-ratio: 1; max-width: 22px; min-height: 18px; padding: 0; border: 2px solid transparent; border-radius: 50%; cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
 .color-swatch-btn:hover { transform: scale(1.12); }
 .color-swatch-btn.is-selected { border-color: var(--ink); box-shadow: 0 0 0 2px #fff inset; transform: scale(1.1); }
-.settings-custom-add { display: flex; gap: 8px; }
+.settings-custom-add { display: flex; align-items: center; gap: 6px; }
 .settings-custom-add input { flex: 1; min-width: 0; }
 .settings-actions { flex-wrap: wrap; justify-content: flex-end; }
 `;
@@ -1690,6 +1714,7 @@ function applyUserSettings() {
 let settingsDraftColors = { ...DEFAULT_EVENT_COLORS };
 let settingsDraftCustom = [];
 let newCategoryDraftColor = PRESET_EVENT_COLORS[0];
+let openColorPaletteTarget = null;
 
 function buildColorPaletteHtml(targetAttr, selectedColor) {
   const normalized = normalizeHexColor(selectedColor, PRESET_EVENT_COLORS[0]);
@@ -1702,57 +1727,101 @@ function renderSettingsCategoriesInModal() {
   const fixedEl = document.getElementById('settingsFixedCategories');
   const customEl = document.getElementById('settingsCustomCategories');
   const newPaletteEl = document.getElementById('newCategoryPalette');
+  const newColorPreview = document.getElementById('newCategoryColorPreview');
+  const newToggleBtn = document.getElementById('toggleNewCategoryPaletteBtn');
+
   if (fixedEl) {
     fixedEl.innerHTML = FIXED_CATEGORY_DEFS.map(def => {
       const color = normalizeHexColor(settingsDraftColors[def.key], DEFAULT_EVENT_COLORS[def.key]);
+      const paletteId = `fixed:${def.key}`;
+      const isOpen = openColorPaletteTarget === paletteId;
       return `<div class="settings-color-row">
         <div class="settings-color-row-head">
-          <span class="settings-color-row-title"><span class="settings-color-dot" style="background:${color}"></span>${escapeHTML(def.label)}</span>
-          <span class="settings-fixed-badge">固定</span>
+          <span class="settings-color-row-title"><span class="settings-color-dot" style="background:${color}"></span>${escapeHTML(def.label)}<span class="settings-fixed-badge">固定</span></span>
+          <div class="settings-row-actions">
+            <button type="button" class="settings-color-toggle-btn" data-toggle-palette="${paletteId}" aria-expanded="${isOpen}">色を変更</button>
+          </div>
         </div>
-        <div class="color-palette-grid">${buildColorPaletteHtml(`data-fixed-color-key="${def.key}" data-color`, color)}</div>
+        ${isOpen ? `<div class="color-palette-grid is-accordion">${buildColorPaletteHtml(`data-fixed-color-key="${def.key}" data-color`, color)}</div>` : ''}
       </div>`;
     }).join('');
+    fixedEl.querySelectorAll('[data-toggle-palette]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const target = btn.dataset.togglePalette;
+        openColorPaletteTarget = openColorPaletteTarget === target ? null : target;
+        renderSettingsCategoriesInModal();
+      });
+    });
     fixedEl.querySelectorAll('[data-fixed-color-key]').forEach(btn => {
       btn.addEventListener('click', () => {
         settingsDraftColors[btn.dataset.fixedColorKey] = btn.dataset.color;
+        openColorPaletteTarget = null;
         renderSettingsCategoriesInModal();
       });
     });
   }
+
+  if (newColorPreview) newColorPreview.style.background = newCategoryDraftColor;
+  if (newToggleBtn) newToggleBtn.setAttribute('aria-expanded', String(openColorPaletteTarget === 'new'));
   if (newPaletteEl) {
-    newPaletteEl.innerHTML = buildColorPaletteHtml('data-new-cat-color', newCategoryDraftColor);
+    const isNewOpen = openColorPaletteTarget === 'new';
+    newPaletteEl.hidden = !isNewOpen;
+    newPaletteEl.innerHTML = isNewOpen ? buildColorPaletteHtml('data-new-cat-color', newCategoryDraftColor) : '';
     newPaletteEl.querySelectorAll('[data-new-cat-color]').forEach(btn => {
       btn.addEventListener('click', () => {
         newCategoryDraftColor = btn.dataset.newCatColor;
+        openColorPaletteTarget = null;
         renderSettingsCategoriesInModal();
       });
     });
   }
+
   if (customEl) {
-    customEl.innerHTML = settingsDraftCustom.map(cat => `
-      <div class="settings-color-row">
+    customEl.innerHTML = settingsDraftCustom.map(cat => {
+      const paletteId = `custom:${cat.id}`;
+      const isOpen = openColorPaletteTarget === paletteId;
+      return `<div class="settings-color-row">
         <div class="settings-color-row-head">
           <span class="settings-color-row-title"><span class="settings-color-dot" style="background:${escapeHTML(cat.color)}"></span>${escapeHTML(cat.name)}</span>
-          <button type="button" class="settings-delete-cat-btn" data-delete-custom-cat="${escapeHTML(cat.id)}">削除</button>
+          <div class="settings-row-actions">
+            <button type="button" class="settings-color-toggle-btn" data-toggle-palette="${escapeHTML(paletteId)}" aria-expanded="${isOpen}">色を変更</button>
+            <button type="button" class="settings-delete-cat-btn" data-delete-custom-cat="${escapeHTML(cat.id)}">削除</button>
+          </div>
         </div>
-        <div class="color-palette-grid">${buildColorPaletteHtml(`data-custom-color-id="${escapeHTML(cat.id)}" data-color`, cat.color)}</div>
-      </div>
-    `).join('');
+        ${isOpen ? `<div class="color-palette-grid is-accordion">${buildColorPaletteHtml(`data-custom-color-id="${escapeHTML(cat.id)}" data-color`, cat.color)}</div>` : ''}
+      </div>`;
+    }).join('');
+    customEl.querySelectorAll('[data-toggle-palette]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const target = btn.dataset.togglePalette;
+        openColorPaletteTarget = openColorPaletteTarget === target ? null : target;
+        renderSettingsCategoriesInModal();
+      });
+    });
     customEl.querySelectorAll('[data-custom-color-id]').forEach(btn => {
       btn.addEventListener('click', () => {
         const target = settingsDraftCustom.find(c => c.id === btn.dataset.customColorId);
         if (target) target.color = btn.dataset.color;
+        openColorPaletteTarget = null;
         renderSettingsCategoriesInModal();
       });
     });
     customEl.querySelectorAll('[data-delete-custom-cat]').forEach(btn => {
       btn.addEventListener('click', () => {
+        if (openColorPaletteTarget === `custom:${btn.dataset.deleteCustomCat}`) openColorPaletteTarget = null;
         settingsDraftCustom = settingsDraftCustom.filter(c => c.id !== btn.dataset.deleteCustomCat);
         renderSettingsCategoriesInModal();
       });
     });
   }
+}
+
+const toggleNewPaletteBtn = document.getElementById('toggleNewCategoryPaletteBtn');
+if (toggleNewPaletteBtn) {
+  toggleNewPaletteBtn.addEventListener('click', () => {
+    openColorPaletteTarget = openColorPaletteTarget === 'new' ? null : 'new';
+    renderSettingsCategoriesInModal();
+  });
 }
 
 function openSettingsModal() {
@@ -1761,6 +1830,7 @@ function openSettingsModal() {
   settingsDraftColors = { ...settings.colors };
   settingsDraftCustom = settings.customCategories.map(cat => ({ ...cat }));
   newCategoryDraftColor = PRESET_EVENT_COLORS[0];
+  openColorPaletteTarget = null;
   const newNameInput = document.getElementById('newCategoryName');
   if (newNameInput) newNameInput.value = '';
   renderSettingsCategoriesInModal();
