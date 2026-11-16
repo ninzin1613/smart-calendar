@@ -5,7 +5,7 @@ data.context.duration = [15, 30, 60].includes(Number(data.context.duration)) ? N
 data.context.mode = ['focus', 'easy'].includes(data.context.mode) ? data.context.mode : 'focus';
 
 document.getElementById('priorityPanel').insertAdjacentHTML('beforebegin', `
-  <section class="spare-time-panel" id="spareTimePanel" aria-labelledby="spareTimeTitle">
+  <section class="spare-time-panel" id="spareTimePanel" aria-labelledby="spareTimeTitle" hidden>
     <div class="spare-time-heading">
       <div>
         <div class="panel-title" id="spareTimeTitle">スキマ時間を活用</div>
@@ -45,6 +45,7 @@ document.getElementById('priorityPanel').insertAdjacentHTML('beforebegin', `
 const spareTimeStyle = document.createElement('style');
 spareTimeStyle.textContent = `
 .spare-time-panel { margin: 0 0 16px; padding: 14px 16px; border: 1px solid #dfe8df; border-radius: 9px; background: #fffefa; box-shadow: var(--shadow); }
+.spare-time-panel[hidden] { display: none; }
 .spare-time-heading { display: flex; justify-content: space-between; align-items: center; }
 .spare-time-note, .spare-time-privacy { margin-top: 4px; color: #828b81; font-size: 10px; }
 .spare-time-context { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin-top: 12px; }

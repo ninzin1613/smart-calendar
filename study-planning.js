@@ -119,7 +119,6 @@ function updateStudyEstimate() {
   document.getElementById('studyWorkloadLabel').textContent = `課題量（${units}）`;
   studyWorkload.value = kind === 'report' ? (studyWorkload.value || 3000) : (studyWorkload.value || 50);
   const hours = estimateStudyHours(kind, workload || Number(studyWorkload.value), difficulty);
-  if (hours) document.getElementById('eventDuration').value = hours;
   studyEstimateNote.textContent = hours
     ? `目安：約${hours}時間（レポートは1000文字あたり約0.8時間、読書は1ページあたり約0.08時間、テストは1ページあたり約0.06時間。難易度で補正します）`
     : '課題量と難易度を入力すると学習時間を見積もります。';
@@ -213,14 +212,14 @@ function renderPlannedTasks() {
 }
 
 function createStudyPlan({ name, kind, due, workload, difficulty, hours, credits, progress, scope, autoSchedule = true }) {
-  const totalHours = Number(hours);
+  const totalHours = hours === '' || hours === null || hours === undefined ? 0 : Number(hours);
   if (!name || !['report', 'reading', 'exam'].includes(kind) || !due || due < dateKey(today)
-      || !Number.isFinite(totalHours) || totalHours <= 0 || totalHours > 200
+      || !Number.isFinite(totalHours) || totalHours < 0 || totalHours > 200
       || Math.abs(totalHours * 60 - Math.round(totalHours * 60)) > 0.00001
       || !Number.isFinite(Number(credits)) || Number(credits) <= 0
       || !Number.isFinite(Number(progress)) || Number(progress) < 0 || Number(progress) > 100
       || (kind === 'exam' && !String(scope || '').trim())) {
-    showToast('課題の種類、期限、学習時間、単位数、進捗を確認してください');
+    showToast('課題の種類、期限、単位数、進捗を確認してください');
     return null;
   }
 
@@ -251,6 +250,37 @@ function createStudyPlan({ name, kind, due, workload, difficulty, hours, credits
   data.plans.push(plan);
 
   const totalMinutes = Math.round(totalHours * 60);
+  if (totalMinutes === 0) {
+    const taskId = `${planId}-1`;
+    data.tasks.push({
+      id: taskId,
+      planId,
+      name,
+      order: 0,
+      due,
+      scope: plan.scope,
+      hours: 0,
+      remaining: 0,
+      done: Number(progress) >= 100
+    });
+    data.sessions.push({
+      id: `s${Date.now()}${Math.random().toString(16).slice(2, 6)}`,
+      taskId,
+      name: `${name}（締切）`,
+      day: due,
+      start: '09:00',
+      end: '10:00',
+      type: 'study',
+      done: Number(progress) >= 100,
+      aiGenerated: true,
+      allocatedHours: 0
+    });
+    save();
+    renderCalendar();
+    renderTasks();
+    showToast('課題を登録しました');
+    return plan;
+  }
   if (kind !== 'exam' && phases.length > 1 && totalMinutes < 135) {
     phases = [{ name: kind === 'report' ? 'レポート作成' : kind === 'reading' ? '読解・整理' : '範囲確認・復習', share: 1 }];
   }
@@ -424,17 +454,18 @@ document.getElementById('eventForm').addEventListener('submit', event => {
   const kind = String(form.get('studyType') || 'report');
   const workload = Number(form.get('studyWorkload'));
   const difficulty = Number(form.get('studyDifficulty'));
-  const hours = Number(form.get('duration'));
+  const rawDuration = form.get('duration');
+  const hours = rawDuration === '' || rawDuration === null ? 0 : Number(rawDuration);
   const credits = Number(form.get('courseCredits'));
   const progress = Number(form.get('studyProgress'));
   const scope = String(form.get('studyScope') || '').trim();
   if (!name || !due || due < dateKey(today) || !Number.isFinite(workload) || workload < 1
       || !Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5
-      || !Number.isFinite(hours) || hours <= 0 || hours > 200
+      || !Number.isFinite(hours) || hours < 0 || hours > 200
       || !Number.isFinite(credits) || credits <= 0
       || !Number.isFinite(progress) || progress < 0 || progress > 100
       || (kind === 'exam' && !scope)) {
-    showToast('課題量、難易度、期限、学習時間、単位数、進捗を確認してください');
+    showToast('課題量、難易度、期限、単位数、進捗を確認してください');
     return;
   }
   createStudyPlan({ name, kind, due, workload, difficulty, hours, credits, progress, scope, autoSchedule: studyAutoSchedule.checked });

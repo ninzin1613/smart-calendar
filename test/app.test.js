@@ -17,7 +17,7 @@ assert.match(html, /<script src="\.\/study-planning\.js"><\/script>/, 'index.htm
 assert.match(html, /<script src="\.\/spare-time\.js"><\/script>/, 'index.html must load the spare-time suggestion script');
 assert.match(html, /<script src="\.\/dashboard-enhancements\.js\?v=20261114-taskrou-choice-dialogue"><\/script>/, 'index.html must load the current dashboard enhancements');
 assert.match(html, /<script src="\.\/quick-input\.js\?v=20261113-taskrou-chat-input"><\/script>/, 'index.html must load task image support');
-assert.match(html, /<script src="\.\/smart-input\.js\?v=20261115-smart-input-autoclose"><\/script>/, 'index.html must load local smart input');
+assert.match(html, /<script src="\.\/smart-input\.js\?v=20261116-smart-input-time-edit"><\/script>/, 'index.html must load local smart input');
 assert.ok(appScripts.length, 'index.html must contain the application script');
 
 function createAppHarness(values = new Map(), browserFeatures = {}) {
@@ -476,8 +476,8 @@ test('calendar event details support keyboard access and safe deletion', () => {
   assert.equal(app.run('data.tasks[0].remaining'), 1);
   app.document.getElementById('deleteCalendarEvent').dispatch('click', {});
   assert.equal(app.run('data.sessions.length'), 0);
-  assert.equal(app.run('data.tasks.length'), 1, 'deleting a study session must not delete its task');
-  assert.equal(app.run('data.tasks[0].remaining'), 1);
+  assert.equal(app.run('data.tasks.length'), 0, 'deleting a task session on the calendar also deletes its task from the task list');
+  assert.equal(JSON.parse(storage.get('smart-calendar-v1')).tasks.length, 0);
 });
 
 test('migrates saved planner data from the legacy storage key', () => {
@@ -1518,6 +1518,7 @@ test('calendar styles AI study blocks, progress, and deadlines', () => {
   assert.match(result.calendar, /0\/1完了（0%）/);
   assert.match(result.calendar, /class="day-head[^"]*has-deadline"/);
   assert.match(result.calendar, /締め切り/);
+  assert.doesNotMatch(result.calendar, /🎯/);
   assert.match(result.completedCalendar, /1\/1完了（100%）/);
 });
 
@@ -1687,4 +1688,419 @@ test('GitHub Pages deploy waits for the passing test job', () => {
   assert.match(deployJob[1], /cp spare-time\.js dist\/spare-time\.js/);
   assert.match(deployJob[1], /cp dashboard-enhancements\.js dist\/dashboard-enhancements\.js/);
   assert.match(deployJob[1], /cp quick-input\.js dist\/quick-input\.js/);
+});
+
+test('AI smart input shows 予定を追加 title, centers review action buttons, and does not require study hours', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage, { Date: createFixedDate(12) });
+
+  app.run(`openModal('class')`);
+  assert.equal(app.document.getElementById('modalTitle').textContent, '予定を追加');
+
+  assert.match(smartInputScript, /\.smart-input-review-actions button[^{]*\{[^}]*justify-content:\s*center/);
+
+  const missing = JSON.parse(app.run(`JSON.stringify(getSmartInputMissingFields({ kind: 'task', name: '英語課題', date: dateKey(addDays(today, 2)), hours: 0 }))`));
+  assert.deepEqual(missing, []);
+
+  app.document.getElementById('smartInputText').value = '明日までに 英語課題';
+  app.document.getElementById('analyzeSmartInput').dispatch('click', {});
+  assert.equal(app.document.getElementById('smartInputReviewPrompt').textContent, '以下の内容で予定を追加していいですか？');
+  const confirmed = app.run('confirmSmartInputReview()');
+  assert.equal(confirmed.length, 1);
+  assert.equal(confirmed[0].source, 'task');
+  assert.equal(JSON.parse(storage.get('smart-calendar-v1')).tasks[0].hours, 0);
+});
+
+test('custom calendar date picker and scrollable time picker render options and update target inputs', () => {
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+  const dateInput = app.document.createElement();
+  dateInput.tagName = 'INPUT';
+  dateInput.type = 'date';
+  dateInput.min = app.run('dateKey(today)');
+  dateInput.value = '';
+
+  app.run('openCustomPicker')(dateInput);
+  const calendarHtml = app.run('customPickerState.popover.innerHTML');
+  assert.match(calendarHtml, /sc-cal-grid/);
+  assert.match(calendarHtml, /data-cal-date/);
+
+  const tomorrowKey = app.run('dateKey(addDays(today, 1))');
+  app.run('emitPickerValue')(dateInput, tomorrowKey);
+  assert.equal(dateInput.value, tomorrowKey);
+
+  const timeInput = app.document.createElement();
+  timeInput.tagName = 'INPUT';
+  timeInput.type = 'time';
+  timeInput.value = '18:30';
+
+  app.run('openCustomPicker')(timeInput);
+  const timeHtml = app.run('customPickerState.popover.innerHTML');
+  assert.match(timeHtml, /data-wheel="hour"/);
+  assert.match(timeHtml, /data-wheel="minute"/);
+  assert.match(timeHtml, /data-wheel-value="1"/);
+  assert.match(timeHtml, /data-wheel-value="59"/);
+  assert.match(timeHtml, /data-wheel-value="18"/);
+  assert.match(timeHtml, /data-wheel-value="30"/);
+  assert.equal(app.run('customPickerState.minuteStep'), 1);
+  assert.equal(app.run('customPickerState.hour'), 18);
+  assert.equal(app.run('customPickerState.minute'), 30);
+  assert.doesNotMatch(smartInputScript, /data-smart-template/);
+  assert.doesNotMatch(smartInputScript, /＋ バイト 4h/);
+
+  app.run('emitPickerValue')(timeInput, '19:47');
+  assert.equal(timeInput.value, '19:47');
+});
+
+test('AI smart input calculates end time from start + duration, extracts clean names, and reflects deadline-only tasks on the calendar', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage, { Date: createFixedDate(12) });
+
+  const shift1 = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('18時から4時間バイト'))`));
+  assert.equal(shift1.start, '18:00');
+  assert.equal(shift1.end, '22:00');
+  assert.equal(shift1.name, 'バイト');
+
+  const shift2 = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('19日14時から8時間バイト'))`));
+  assert.equal(shift2.start, '14:00');
+  assert.equal(shift2.end, '22:00');
+  assert.equal(shift2.name, 'バイト');
+
+  const shift3 = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('10時から12時間バイト'))`));
+  assert.equal(shift3.start, '10:00');
+  assert.equal(shift3.end, '22:00');
+  assert.equal(shift3.name, 'バイト');
+
+  app.document.getElementById('smartInputText').value = '明日 17:00まで 英語レポート';
+  app.document.getElementById('analyzeSmartInput').dispatch('click', {});
+  const confirmed = app.run('confirmSmartInputReview()');
+  assert.equal(confirmed.length, 1);
+  assert.equal(confirmed[0].source, 'task');
+
+  const saved = JSON.parse(storage.get('smart-calendar-v1'));
+  assert.equal(saved.sessions.length, 1);
+  assert.equal(saved.sessions[0].start, '16:00');
+  assert.equal(saved.sessions[0].end, '17:00');
+  assert.match(app.document.getElementById('calendarGrid').innerHTML, /英語レポート（締切）/);
+});
+
+test('AI smart input keeps explicit dates as one-off events and avoids matching 日 inside dates or words as Sunday', () => {
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+
+  const day20 = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('20日からバイト'))`));
+  assert.equal(day20.repeat, 'once');
+  assert.equal(day20.date, app.run(`(() => { const d = new Date(today); d.setDate(20); if (dateKey(d) < dateKey(today)) d.setMonth(d.getMonth() + 1); return dateKey(d); })()`));
+
+  const day20WithRange = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('20日から 18:00-22:00 バイト'))`));
+  assert.equal(day20WithRange.repeat, 'once');
+  assert.equal(day20WithRange.date, day20.date);
+  assert.equal(day20WithRange.start, '18:00');
+  assert.equal(day20WithRange.end, '22:00');
+
+  const tomorrow = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('明日バイト'))`));
+  assert.equal(tomorrow.repeat, 'once');
+  assert.equal(tomorrow.date, app.run('dateKey(addDays(today, 1))'));
+
+  const wordWithDay = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('明日 18:00-19:00 日本語学習'))`));
+  assert.equal(wordWithDay.repeat, 'once');
+
+  const isoDateOnly = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('2026-11-20 バイト'))`));
+  assert.equal(isoDateOnly.repeat, 'once');
+  assert.equal(isoDateOnly.date, '2026-11-20');
+  assert.equal(isoDateOnly.start, '');
+  assert.equal(isoDateOnly.end, '');
+});
+
+test('AI smart input includes Tesseract v5 CDN, image attachment UI, and combines image OCR with text', async () => {
+  assert.match(html, /https:\/\/cdn\.jsdelivr\.net\/npm\/tesseract\.js@5\/dist\/tesseract\.min\.js/);
+  assert.match(smartInputScript, /id="smartImageBtn"[^>]*>📷 画像を添付</);
+  assert.match(smartInputScript, /id="smartImagePreview"/);
+  assert.match(smartInputScript, /id="smartImageRemove"[^>]*>×</);
+
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+  app.run(`
+    Tesseract = {
+      async recognize(dataUrl, lang) {
+        globalThis.__ocrCall = { dataUrl, lang };
+        return { data: { text: '明日 18:00-22:00 バイト' } };
+      }
+    };
+    smartInputImage = { file: { name: 'shift.png' }, dataUrl: 'data:image/png;base64,AAA', name: 'shift.png' };
+    smartImagePreviewWrap.hidden = false;
+    smartInputText.value = 'これ追加して';
+  `);
+
+  await app.run('analyzeSmartInput()');
+  const ocrCall = JSON.parse(app.run('JSON.stringify(globalThis.__ocrCall)'));
+  assert.equal(ocrCall.lang, 'jpn+eng');
+  assert.equal(ocrCall.dataUrl, 'data:image/png;base64,AAA');
+  assert.equal(app.run('smartInputPending.length'), 1);
+  assert.equal(app.run('smartInputPending[0].name'), 'バイト');
+  assert.equal(app.run('smartInputPending[0].start'), '18:00');
+  assert.equal(app.run('smartInputPending[0].end'), '22:00');
+
+  app.run('clearSmartInputImage()');
+  assert.equal(app.run('smartInputImage'), null);
+  assert.equal(app.document.getElementById('smartImagePreviewWrap').hidden, true);
+});
+
+test('AI smart input filters timetable OCR with user instructions and highlights missing fields', async () => {
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+  let statusDuringOcr = '';
+  app.run(`
+    Tesseract = {
+      async recognize() {
+        return {
+          data: {
+            text: '時間割\\n月 火 水\\n月曜1限 経済学 | 火曜1限 英語\\n月曜 バイト\\n水曜3限 マーケティング'
+          }
+        };
+      }
+    };
+    smartInputImage = { file: { name: 'timetable.png' }, dataUrl: 'data:image/png;base64,BBB', name: 'timetable.png' };
+    smartInputText.value = '月曜の授業だけ追加';
+  `);
+
+  const promise = app.run('analyzeSmartInput()');
+  statusDuringOcr = app.document.getElementById('smartInputStatus').textContent;
+  await promise;
+
+  assert.equal(statusDuringOcr, '画像を読み取り中...');
+  assert.equal(app.run('smartInputPending.length'), 1);
+  assert.equal(app.run('smartInputPending[0].name'), '経済学');
+  assert.equal(app.run('smartInputPending[0].weekday'), 1);
+  assert.equal(app.run('smartInputPending[0].start'), '09:00');
+  assert.equal(app.run('smartInputPending[0].end'), '10:30');
+
+  const incompleteOcr = JSON.parse(app.run(`JSON.stringify(parseSmartInputWithImage('', '金曜 サークル'))`));
+  assert.equal(incompleteOcr.length, 1);
+  assert.deepEqual(
+    JSON.parse(app.run(`JSON.stringify(getSmartInputMissingFields(${JSON.stringify(incompleteOcr[0])}))`)),
+    ['開始時刻', '終了時刻']
+  );
+});
+
+test('AI smart input parses deadline expressions, excludes LMS noise, and merges a single task detail page', () => {
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+
+  const deadlineLine = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('期限 月曜 (23:59までに)'))`));
+  assert.equal(deadlineLine.kind, 'task');
+  assert.equal(deadlineLine.end, '23:59');
+  assert.equal(deadlineLine.start, '');
+  assert.equal(new Date(`${deadlineLine.date}T00:00:00`).getDay(), 1);
+  assert.ok(deadlineLine.date >= app.run('dateKey(today)'));
+
+  const shortDeadline = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('締切 23:59 数学課題'))`));
+  assert.equal(shortDeadline.kind, 'task');
+  assert.equal(shortDeadline.end, '23:59');
+  assert.equal(shortDeadline.start, '');
+
+  const lmsOcrText = [
+    'アカウント',
+    'ダッシュボード',
+    'コース',
+    'カレンダー',
+    'メッセージ',
+    '履歴',
+    'ヘルプ',
+    'モジュール',
+    'ディスカッション',
+    '最終制作レポート',
+    '期限 月曜 (23:59までに)',
+    'ポイント 100',
+    '提出方法 ファイルのアップロード',
+    '2026年11月xx日',
+    '※デモ動画は別課題から提出してください'
+  ].join('\\n');
+
+  const extracted = JSON.parse(app.run(`JSON.stringify(parseSmartInputWithImage('', '${lmsOcrText}'))`));
+  assert.equal(extracted.length, 1);
+  assert.equal(extracted[0].kind, 'task');
+  assert.equal(extracted[0].name, '最終制作レポート');
+  assert.equal(extracted[0].end, '23:59');
+  assert.equal(new Date(`${extracted[0].date}T00:00:00`).getDay(), 1);
+  assert.doesNotMatch(smartInputScript, /preprocessSmartInputImage/);
+});
+
+test('AI smart input uses date/time anchors to switch between single-event aggregation and multi-event extraction', () => {
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+
+  const noiseOnly = JSON.parse(app.run(`JSON.stringify(parseOcrByDateTimeAnchors('メニュー\\n2026年11月xx日\\n※注意書き'))`));
+  assert.equal(noiseOnly.length, 0);
+
+  const lineChatOcr = [
+    '大学祭ミーティング',
+    '11/20 18:00-19:30',
+    '場所は3号館201教室',
+    '※持ち物なし'
+  ].join('\\n');
+  const singleEvent = JSON.parse(app.run(`JSON.stringify(parseOcrByDateTimeAnchors('${lineChatOcr}'))`));
+  assert.equal(singleEvent.length, 1);
+  assert.equal(singleEvent[0].kind, 'event');
+  assert.equal(singleEvent[0].name, '大学祭ミーティング');
+  assert.equal(singleEvent[0].start, '18:00');
+  assert.equal(singleEvent[0].end, '19:30');
+
+  const shiftTableOcr = [
+    'シフト表',
+    '11/18 18:00-22:00',
+    'カフェバイト',
+    '11/19 10:00-14:00 カフェバイト',
+    '水曜6限 夜間ゼミ'
+  ].join('\\n');
+  const multiEvents = JSON.parse(app.run(`JSON.stringify(parseOcrByDateTimeAnchors('${shiftTableOcr}'))`));
+  assert.equal(multiEvents.length, 3);
+  assert.equal(multiEvents[0].name, 'カフェバイト');
+  assert.equal(multiEvents[0].start, '18:00');
+  assert.equal(multiEvents[0].end, '22:00');
+  assert.equal(multiEvents[2].start, '18:10');
+  assert.equal(multiEvents[2].end, '19:40');
+});
+
+test('AI smart input cleans OCR spacing, extracts largest bbox title, shows debug OCR text, and guarantees 1 fallback item', async () => {
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+
+  assert.equal(
+    app.run(`cleanOcrText('最 終 制 作 レ ポ ー ト\\n月 曜 23 : 59 ま で に')`),
+    '最終制作レポート\n月曜 23:59までに'
+  );
+
+  app.run(`
+    Tesseract = {
+      async recognize() {
+        return {
+          data: {
+            text: 'https://lms.example.jp/course\\nコ ー ス\\n最 終 制 作 レ ポ ー ト\\n詳 細 を 確 認 し て く だ さ い',
+            lines: [
+              { text: 'https://lms.example.jp/course', bbox: { x0: 20, y0: 10, x1: 400, y1: 30 } },
+              { text: 'コ ー ス', bbox: { x0: 10, y0: 200, x1: 90, y1: 230 } },
+              { text: '最 終 制 作 レ ポ ー ト', bbox: { x0: 200, y0: 160, x1: 700, y1: 220 } },
+              { text: '詳 細 を 確 認 し て く だ さ い', bbox: { x0: 200, y0: 260, x1: 600, y1: 280 } }
+            ]
+          }
+        };
+      }
+    };
+    smartInputImage = { file: { name: 'report.png' }, dataUrl: 'data:image/png;base64,CCC', name: 'report.png' };
+    smartInputText.value = '';
+  `);
+
+  await app.run('analyzeSmartInput()');
+  assert.equal(app.run('smartInputPending.length'), 1);
+  assert.equal(app.run('smartInputPending[0].name'), '最終制作レポート');
+  assert.equal(app.run('smartInputPending[0].date'), '');
+  assert.equal(app.document.getElementById('smartOcrDebug').hidden, false);
+  assert.match(app.document.getElementById('smartOcrDebugText').textContent, /最終制作レポート/);
+
+  const mergedWithOverride = JSON.parse(app.run(`JSON.stringify(parseSmartInputWithImage('11/20 17:00までに 課題として登録して', 'データサイエンス概論\\n詳細を確認してください', { mainTitle: 'データサイエンス概論', guaranteeSingle: true }))`));
+  assert.equal(mergedWithOverride.length, 1);
+  assert.equal(mergedWithOverride[0].name, 'データサイエンス概論');
+  assert.equal(mergedWithOverride[0].kind, 'task');
+  assert.equal(mergedWithOverride[0].end, '17:00');
+
+  const noisyHeadingOcr = [
+    'コース > 第10回課題 > 提出',
+    '以下の手順をよく読んで、期限までに必ず提出してください。',
+    '最終制作レポート - モジュール',
+    '期限 月曜 (23:59までに)',
+    '提出後はお知らせを確認してください'
+  ].join('\\n');
+  const titleFromUpper = JSON.parse(app.run(`JSON.stringify(parseOcrByDateTimeAnchors('${noisyHeadingOcr}'))`));
+  assert.equal(titleFromUpper.length, 1);
+  assert.equal(titleFromUpper[0].name, '最終制作レポート');
+
+  assert.equal(app.run(`extractShortTitlePhrase('これは20文字を超える長い説明文のテストです。')`), '');
+  assert.equal(app.run(`extractShortTitlePhrase('短いですが、読点があります')`), '');
+});
+
+test('AI smart input supports image crop UI and renders up to 5 clickable title suggestion chips', async () => {
+  assert.match(smartInputScript, /id="smartImageCropStage"/);
+  assert.match(smartInputScript, /id="smartCropRect"/);
+  assert.match(smartInputScript, /id="smartCropReset"/);
+
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+  app.run(`
+    Tesseract = {
+      async recognize() {
+        return {
+          data: {
+            text: '経営学レポート\\n中間発表\\nマーケティング\\nゼミ合宿\\n英語プレゼン\\n統計学課題\\n11/20 17:00まで'
+          }
+        };
+      }
+    };
+    smartInputImage = {
+      file: { name: 'flyer.png' },
+      dataUrl: 'data:image/png;base64,DDD',
+      name: 'flyer.png',
+      crop: { x: 0.1, y: 0.2, w: 0.5, h: 0.4 }
+    };
+    updateSmartCropRectUi(smartInputImage.crop);
+  `);
+
+  assert.equal(app.document.getElementById('smartCropRect').hidden, false);
+  assert.equal(app.document.getElementById('smartCropRect').style.left, '10.00%');
+  assert.equal(app.document.getElementById('smartCropReset').hidden, false);
+
+  await app.run('analyzeSmartInput()');
+  const chips = JSON.parse(app.run('JSON.stringify(smartOcrTitleSuggestions)'));
+  assert.equal(chips.length, 5);
+  assert.match(app.document.getElementById('smartInputReviewList').innerHTML, /data-smart-title-chip="経営学レポート"/);
+  assert.match(app.document.getElementById('smartInputReviewList').innerHTML, /data-smart-title-chip="英語プレゼン"/);
+});
+
+test('tasks added via AI smart input do not carry aiGenerated flags or AI badges', () => {
+  const storage = new Map();
+  const app = createAppHarness(storage, { Date: createFixedDate(12) });
+
+  app.document.getElementById('smartInputText').value = '明日 17:00まで 英語レポート';
+  app.document.getElementById('analyzeSmartInput').dispatch('click', {});
+  app.run('confirmSmartInputReview()');
+
+  const saved = JSON.parse(storage.get('smart-calendar-v1'));
+  assert.equal(saved.tasks[0].aiGenerated, undefined);
+  assert.equal(saved.plans[0].aiGenerated, undefined);
+  assert.equal(saved.sessions[0].aiGenerated, undefined);
+  assert.doesNotMatch(app.document.getElementById('calendarGrid').innerHTML, /ai-study|ai-generated|ai-badge/);
+  assert.doesNotMatch(dashboardEnhancementsScript, /\.event\.ai-study \.event-title::before/);
+});
+
+test('AI smart input defaults to once, switches to weekly class for timetable/fixed keywords, and parses X/Y timetable grids', () => {
+  const app = createAppHarness(new Map(), { Date: createFixedDate(12) });
+
+  const oneOff = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('明日 18:00-22:00 バイト'))`));
+  assert.equal(oneOff.repeat, 'once');
+
+  const fixedKeyword = JSON.parse(app.run(`JSON.stringify(parseSmartInputLine('固定 月曜 10:40-12:10 ゼミ'))`));
+  assert.equal(fixedKeyword.repeat, 'weekly');
+  assert.equal(fixedKeyword.type, 'class');
+  assert.deepEqual(
+    JSON.parse(app.run(`JSON.stringify(getSmartInputMissingFields({ kind: 'event', name: 'ゼミ', repeat: 'weekly', weekday: 1, date: '', start: '10:40', end: '12:10', type: 'class' }))`)),
+    []
+  );
+
+  const words = [
+    { text: '月', bbox: { x0: 120, y0: 20, x1: 150, y1: 44 } },
+    { text: '火', bbox: { x0: 240, y0: 20, x1: 270, y1: 44 } },
+    { text: '水', bbox: { x0: 360, y0: 20, x1: 390, y1: 44 } },
+    { text: '1限', bbox: { x0: 20, y0: 90, x1: 60, y1: 115 } },
+    { text: '2限', bbox: { x0: 20, y0: 180, x1: 60, y1: 205 } },
+    { text: 'ミクロ', bbox: { x0: 110, y0: 85, x1: 165, y1: 105 } },
+    { text: '経済学', bbox: { x0: 110, y0: 108, x1: 165, y1: 128 } },
+    { text: 'A101', bbox: { x0: 115, y0: 130, x1: 155, y1: 145 } },
+    { text: '統計学', bbox: { x0: 230, y0: 175, x1: 285, y1: 195 } },
+    { text: '3-201', bbox: { x0: 235, y0: 198, x1: 280, y1: 215 } }
+  ];
+  const grid = JSON.parse(app.run(`JSON.stringify(extractTimetableGridFromOcr(${JSON.stringify(words)}, []))`));
+  assert.equal(grid.length, 2);
+  assert.equal(grid[0].name, 'ミクロ経済学');
+  assert.equal(grid[0].weekday, 1);
+  assert.equal(grid[0].repeat, 'weekly');
+  assert.equal(grid[0].type, 'class');
+  assert.equal(grid[0].start, '09:00');
+  assert.equal(grid[0].end, '10:30');
+  assert.ok(grid[0].date >= app.run('dateKey(today)'));
+  assert.equal(grid[1].name, '統計学');
+  assert.equal(grid[1].weekday, 2);
+  assert.equal(grid[1].start, '10:40');
+  assert.equal(grid[1].end, '12:10');
 });

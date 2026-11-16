@@ -161,13 +161,11 @@ enhancementStyle.textContent = `
 .task-fab:hover { background: #e85e52; transform: translateY(-1px); }
 .task-fab span { font-size: 11px; }
 .calendar-grid .event.ai-study, .calendar-grid .event.ai-generated { border: 1px dashed #d99054; border-left: 4px solid #d99054; background: #fff7e8; color: #765021; }
-.calendar-grid .event.ai-study .event-title::before { content: "🦉 "; }
 .calendar-grid .ai-badge { display: inline-block; margin-right: 4px; padding: 1px 3px; border-radius: 3px; background: #d99054; color: white; font-size: 8px; vertical-align: 1px; }
 .calendar-grid .ai-progress { margin-top: 3px; font-size: 8px; }
 .calendar-grid .ai-progress-track { height: 3px; margin-top: 2px; overflow: hidden; border-radius: 2px; background: rgba(118, 80, 33, .18); }
 .calendar-grid .ai-progress-fill { height: 100%; background: #d99054; }
 .calendar-grid .day-head.has-deadline strong { color: #b65040; }
-.calendar-grid .deadline-mark { margin-left: 2px; color: #c45c45; font: 10px var(--sans); vertical-align: 2px; }
 .calendar-grid .event.ai-new { animation: ai-session-arrive .45s ease-out both; }
 @keyframes ai-session-arrive { from { opacity: 0; transform: translateY(-8px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .task-overview { min-height: 60vh; padding: 18px 0; }
@@ -355,7 +353,7 @@ function renderTaskOverview() {
       || left.due.localeCompare(right.due)
       || (left.order || 0) - (right.order || 0)
   );
-  const openCount = tasks.filter(task => !task.done && task.remaining > 0).length;
+  const openCount = tasks.filter(task => !task.done && (Number(task.hours || 0) === 0 || task.remaining > 0)).length;
   document.getElementById('taskOverviewSummary').textContent =
     `${openCount}件が未完了 · 全${tasks.length}件`;
 
@@ -366,7 +364,7 @@ function renderTaskOverview() {
 
   list.innerHTML = tasks.map(task => {
     const plan = task.planId && data.plans.find(item => item.id === task.planId);
-    const completed = Boolean(task.done || task.remaining <= 0);
+    const completed = Boolean(task.done || (Number(task.hours || 0) > 0 && task.remaining <= 0));
     const daysLeft = Math.ceil((new Date(`${task.due}T00:00:00`) - today) / 86400000);
     const dueText = daysLeft < 0 ? `${Math.abs(daysLeft)}日超過` : daysLeft === 0 ? '今日が締切' : `${daysLeft}日後`;
     const name = task.phase ? `${escapeHTML(task.name)} · ${escapeHTML(task.phase)}` : escapeHTML(task.name);
@@ -941,7 +939,7 @@ function decorateCalendarForStudyPlans(markup) {
     const day = dateKey(date);
     const hasDeadline = data.tasks.some(task => !task.done && task.due === day);
     return hasDeadline
-      ? `<div class="day-head${classes} has-deadline"><span>${weekday}</span><strong>${dayNumber}<span class="deadline-mark" aria-label="締め切り">🎯</span></strong></div>`
+      ? `<div class="day-head${classes} has-deadline" aria-label="締め切り"><span>${weekday}</span><strong>${dayNumber}</strong></div>`
       : header;
   });
   return withDeadlines.replace(
@@ -950,7 +948,7 @@ function decorateCalendarForStudyPlans(markup) {
       const sessionMatch = attributes.match(/data-session="([^"]+)"/);
       const session = sessionMatch && data.sessions.find(item => item.id === sessionMatch[1]);
       const task = session && data.tasks.find(item => item.id === session.taskId);
-      if (!task?.planId) return event;
+      if (!task?.planId || !session?.aiGenerated) return event;
       const progress = getPlanProgress(task.planId);
       const animated = data.recentlyScheduledSessionIds.includes(session.id);
       return `<div class="event ${classes} ai-generated${animated ? ' ai-new' : ''}"${attributes}><div class="event-title"><span class="ai-badge">AI</span>${title}</div><div class="event-time">${time}</div><div class="ai-progress">${progress.completedTasks}/${progress.totalTasks}完了（${progress.percent}%）<div class="ai-progress-track"><div class="ai-progress-fill" style="width:${progress.percent}%"></div></div></div></div>`;

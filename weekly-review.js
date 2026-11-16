@@ -6,7 +6,7 @@ reviewContainer.insertAdjacentHTML('beforebegin', `
   </section>
 `);
 reviewContainer.insertAdjacentHTML('afterend', `
-  <section class="weekly-review panel" id="weeklyReview" aria-labelledby="reviewTitle">
+  <section class="weekly-review panel" id="weeklyReview" aria-labelledby="reviewTitle" hidden>
     <div class="panel-head">
       <div>
         <div class="panel-title" id="reviewTitle">今週の計画を振り返る</div>
